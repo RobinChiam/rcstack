@@ -1,0 +1,125 @@
+# rcstack-study — model routing, risk tiers 0-3 and review matrix for learning work.
+#
+# Strict YAML subset (SPEC.md section 3.1): 2-space indentation, block mappings and block
+# sequences, double-quoted model names and globs. No tabs, anchors, tags, flow collections
+# or block scalars. Validated by `node scripts/verify.mjs` against profiles/schema.json.
+
+schema_version: "1.0"
+profile: rcstack-study
+domain: study
+description: "Routing for grounded notes, first-principles walkthroughs, recall drills and Socratic sessions."
+
+invariants:
+  require_reviewer_not_equal_builder: true
+  require_fresh_context_audit: true
+  allow_self_review_on_fallback: false
+
+# High-stakes study material: anything graded, submitted or presented as a formal proof.
+tier3_path_patterns:
+  - "exams/**"
+  - "**/exams/**"
+  - "**/submissions/**"
+  - "**/graded/**"
+  - "**/proofs/**"
+
+roles:
+  # First-principles derivations.
+  systems_research:
+    primary: "GPT 6.2 Astra"
+    fallback: "Claude Fable 5.2"
+  # Study guides and note structures.
+  architect_blueprint:
+    primary: "Claude Fable 5.2"
+    fallback: "GPT 6.2 Astra"
+  # Flashcards, quizzes and spaced-repetition schedules.
+  primary_builder:
+    primary: "Gemini 4 Neon"
+    fallback: "Claude Sonnet 5.5"
+  # Rigorous formal and exam proof checks.
+  security_builder:
+    primary: "Claude Opus 5.5"
+    fallback: "GPT 6.2 Astra"
+  # Socratic and active-recall drills.
+  vibe_executor:
+    primary: "GPT 6.2 Sol"
+    secondary: "Gemini 4 Neon"
+    fallback: "Claude Sonnet 5.5"
+  deep_grounding:
+    primary: "Gemini 4 Neon"
+    paired_with: "GPT 6.2 Astra"
+    companion_tools:
+      - "Gemini Notebook"
+    fallback: "GPT 6.2 Astra"
+  # exclusive: this model serves Tier 0 lookups only and is never bound to any other role.
+  quick_lookup:
+    primary: "Gemini 4 Hydrogen"
+    exclusive: true
+    fallback: "Gemini 4 Hydrogen"
+
+# builder model -> reviewers for the citation and factual-accuracy audit.
+# reviewer != builder is enforced by scripts/verify.mjs. Reviewers only review.
+review_matrix:
+  "Gemini 4 Neon":
+    primary: "Claude Opus 5.5"
+    fallback: "Cursor Grok 4.7"
+  "Claude Opus 5.5":
+    primary: "Gemini 4 Neon"
+    fallback: "Cursor Grok 4.7"
+  "GPT 6.2 Sol":
+    primary: "Claude Opus 5.5"
+    tier1_primary: "Gemini 4 Neon"
+    fallback: "Cursor Grok 4.7"
+  "Claude Sonnet 5.5":
+    primary: "Gemini 4 Neon"
+    fallback: "Cursor Grok 4.7"
+  "GPT 6.2 Astra":
+    primary: "Claude Opus 5.5"
+    fallback: "Cursor Grok 4.7"
+  "Claude Fable 5.2":
+    primary: "Gemini 4 Neon"
+    fallback: "Cursor Grok 4.7"
+  default_fallback: "Cursor Grok 4.7"
+
+risk_tiers:
+  "0":
+    name: trivial_lookup
+    default_roles:
+      - quick_lookup
+    require_spec: false
+    require_verify: false
+    require_cross_model_audit: false
+    require_review_map: false
+    log_telemetry: false
+  "1":
+    name: fast_drill
+    default_roles:
+      - vibe_executor
+      - primary_builder
+    require_spec: false
+    require_verify: true
+    require_cross_model_audit: false
+    require_review_map: false
+    log_telemetry: false
+  "2":
+    name: standard_study
+    default_roles:
+      - deep_grounding
+      - architect_blueprint
+      - systems_research
+    require_spec: true
+    require_verify: true
+    require_cross_model_audit: true
+    require_review_map: true
+    log_telemetry: true
+  "3":
+    name: rigorous_proof
+    default_roles:
+      - deep_grounding
+      - systems_research
+      - architect_blueprint
+      - security_builder
+    require_spec: true
+    require_verify: true
+    require_cross_model_audit: true
+    require_review_map: true
+    log_telemetry: true

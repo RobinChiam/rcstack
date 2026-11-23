@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rcstack:profiles:schema:1.0",
+  "title": "rcstack routing profile",
+  "description": "Contract for profiles/*.yaml: binds abstract roles to concrete models, defines risk tiers 0-3 and the reviewer matrix. Uses only keywords enforced by scripts/verify.mjs. Cross-entry invariants that JSON Schema cannot express (reviewer != builder, review_matrix coverage, quick_lookup exclusivity, Tier 2+ gate floor) are enforced by scripts/verify.mjs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile",
+    "domain",
+    "description",
+    "invariants",
+    "tier3_path_patterns",
+    "roles",
+    "review_matrix",
+    "risk_tiers"
+  ],
+  "properties": {
+    "schema_version": { "const": "1.0" },
+    "profile": { "enum": ["rcstack-engineering", "rcstack-study", "rcstack-research"] },
+    "domain": { "enum": ["engineering", "study", "research"] },
+    "description": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "invariants": {
+      "description": "Non-negotiable review guarantees. Every value is pinned; a profile cannot opt out.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "require_reviewer_not_equal_builder",
+        "require_fresh_context_audit",
+        "allow_self_review_on_fallback"
+      ],
+      "properties": {
+        "require_reviewer_not_equal_builder": { "const": true },
+        "require_fresh_context_audit": { "const": true },
+        "allow_self_review_on_fallback": { "const": false }
+      }
+    },
+    "tier3_path_patterns": {
+      "description": "Repo-relative globs. Any touched or target path that matches one escalates the run to Tier 3. '*' stays within one path segment; '**' spans any number of segments, including none.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/glob" }
+    },
+    "roles": {
+      "description": "Abstract role -> model bindings. independent_reviewer is deliberately absent: it is resolved through review_matrix.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "systems_research",
+        "architect_blueprint",
+        "primary_builder",
+        "security_builder",
+        "vibe_executor",
+        "deep_grounding",
+        "quick_lookup"
+      ],
+      "properties": {
+        "systems_research": { "$ref": "#/$defs/single_model_role" },
+        "architect_blueprint": { "$ref": "#/$defs/single_model_role" },
+        "primary_builder": { "$ref": "#/$defs/single_model_role" },
+        "security_builder": { "$ref": "#/$defs/single_model_role" },
+        "vibe_executor": { "$ref": "#/$defs/vibe_executor_role" },
+        "deep_grounding": { "$ref": "#/$defs/deep_grounding_role" },
+        "quick_lookup": { "$ref": "#/$defs/quick_lookup_role" }
+      }
+    },
+    "review_matrix": {
+      "description": "Builder model name -> its reviewers, plus the required default_fallback reviewer used when a builder has no entry. Every model bound to systems_research, architect_blueprint, primary_builder, security_builder or vibe_executor must have an entry.",
+      "type": "object",
+      "minProperties": 2,
+      "required": ["default_fallback"],
+      "propertyNames": { "$ref": "#/$defs/model_name" },
+      "properties": {
+        "default_fallback": { "$ref": "#/$defs/model_name" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/review_entry" }
+    },
+    "risk_tiers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["0", "1", "2", "3"],
+      "properties": {
+        "0": { "$ref": "#/$defs/risk_tier" },
+        "1": { "$ref": "#/$defs/risk_tier" },
+        "2": { "$ref": "#/$defs/risk_tier" },
+        "3": { "$ref": "#/$defs/risk_tier" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "required": ["profile"], "properties": { "profile": { "const": "rcstack-engineering" } } },
+      "then": { "properties": { "domain": { "const": "engineering" } } }
+    },
+    {
+      "if": { "required": ["profile"], "properties": { "profile": { "const": "rcstack-study" } } },
+      "then": { "properties": { "domain": { "const": "study" } } }
+    },
+    {
+      "if": { "required": ["profile"], "properties": { "profile": { "const": "rcstack-research" } } },
+      "then": { "properties": { "domain": { "const": "research" } } }
+    }
+  ],
+  "$defs": {
+    "model_name": {
+      "description": "A concrete model or tool name: single line, no leading or trailing whitespace.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^\\S(?:.*\\S)?$"
+    },
+    "glob": {
+      "description": "A repo-relative glob: no whitespace, no backslashes, no leading slash.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\s\\\\/][^\\s\\\\]*$"
+    },
+    "role_key": {
+      "description": "Roles a profile binds to models under `roles`.",
+      "enum": [
+        "systems_research",
+        "architect_blueprint",
+        "primary_builder",
+        "security_builder",
+        "vibe_executor",
+        "deep_grounding",
+        "quick_lookup"
+      ]
+    },
+    "abstract_role": {
+      "description": "Every abstract role a skill `role` or a playbook `required_roles` entry may name: the seven profile roles plus independent_reviewer, which rc-router resolves from review_matrix for the builder of record.",
+      "enum": [
+        "systems_research",
+        "architect_blueprint",
+        "primary_builder",
+        "security_builder",
+        "vibe_executor",
+        "deep_grounding",
+        "quick_lookup",
+        "independent_reviewer"
+      ]
+    },
+    "single_model_role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "fallback"],
+      "properties": {
+        "primary": { "$ref": "#/$defs/model_name" },
+        "fallback": { "$ref": "#/$defs/model_name" }
+      }
+    },
+    "vibe_executor_role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "secondary", "fallback"],
+      "properties": {
+        "primary": { "$ref": "#/$defs/model_name" },
+        "secondary": { "$ref": "#/$defs/model_name" },
+        "fallback": { "$ref": "#/$defs/model_name" }
+      }
+    },
+    "deep_grounding_role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "paired_with", "companion_tools", "fallback"],
+      "properties": {
+        "primary": { "$ref": "#/$defs/model_name" },
+        "paired_with": { "$ref": "#/$defs/model_name" },
+        "companion_tools": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/model_name" }
+        },
+        "fallback": { "$ref": "#/$defs/model_name" }
+      }
+    },
+    "quick_lookup_role": {
+      "description": "exclusive: true reserves the bound model for Tier 0 lookups; it may not appear in any other role or anywhere in review_matrix.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "exclusive"],
+      "properties": {
+        "primary": { "$ref": "#/$defs/model_name" },
+        "exclusive": { "type": "boolean" },
+        "fallback": { "$ref": "#/$defs/model_name" }
+      }
+    },
+    "review_entry": {
+      "description": "Reviewers for one builder model. Every value must differ from the builder, and primary must differ from fallback.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["primary", "fallback"],
+      "properties": {
+        "primary": { "$ref": "#/$defs/model_name" },
+        "tier1_primary": { "$ref": "#/$defs/model_name" },
+        "fallback": { "$ref": "#/$defs/model_name" }
+      }
+    },
+    "risk_tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "default_roles",
+        "require_spec",
+        "require_verify",
+        "require_cross_model_audit",
+        "require_review_map",
+        "log_telemetry"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "pattern": "^[a-z][a-z0-9_]*$" },
+        "default_roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/role_key" }
+        },
+        "require_spec": { "type": "boolean" },
+        "require_verify": { "type": "boolean" },
+        "require_cross_model_audit": { "type": "boolean" },
+        "require_review_map": { "type": "boolean" },
+        "log_telemetry": { "type": "boolean" }
+      }
+    }
+  }
+}
