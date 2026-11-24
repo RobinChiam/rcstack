@@ -59,7 +59,8 @@ specs/
 
 **Validator** (`scripts/verify.mjs`)
 
-- `TOP_LEVEL_ENTRIES` gains `specs`.
+- `TOP_LEVEL_ENTRIES` gains `specs`. (Superseded by `DEC-015`: the root is now open, and `specs`
+  is one of the owned directories; see `specs/gitignore-aware-validation/spec.md`.)
 - `export function checkSpecsTree(dir, label = 'specs'): string[]` returns one message per
   violation of rules 1-5; an empty list means the tree is valid. An empty or missing `dir` is
   reported as missing, never resolved to another directory.
@@ -115,7 +116,7 @@ specs/
       regular file; a pipe or other special file; a symbolic link.
 - [ ] `specs/a/spec.md` with `specs/a/b/spec.md`, plus `requirements.md` and `planning.md` beside
       either, passes.
-- [ ] A stray root entry other than `specs` still fails.
+- [ ] A stray root entry other than `specs` still fails. (Withdrawn by `DEC-015`.)
 - [ ] `node scripts/verify.mjs --specs <dir>` exits `0` for a valid tree and `1` for an invalid one.
 - [ ] `bash adapters/install.sh --home <temp home>` installs into `<temp home>/.rcstack`, links
       all 5 skills into all 5 harness directories, and `dist/` contains no `specs/`.

@@ -52,6 +52,10 @@ Give a target repository the minimum it needs for rcstack to work in it honestly
    - **CI workflow** — runs exactly the canonical verify command on every push and pull request.
 3. **Write only the chosen modules**, one commit per module. Do not reformat or fix existing code
    to satisfy a new check in the same commit; record the failures instead.
+   Never impose a fixed list of allowed root entries on a target repository: its top-level
+   layout is its own, and `AGENTS.md` records only the invariants the human states. If the
+   repository keeps committed folders that are not authoritative (an archive of old work, vendored
+   material), offer to list them in `AGENTS.md` on one line starting `Ignored / Archived Paths:`.
 4. **Keep the target clean.** Write no rcstack runtime state, telemetry, or Work Receipts into the
    repository, and no reference to a machine-local path. Task state lives in
    `~/.rcstack/runtime/`; contracts stay in `~/.rcstack/dist/`. The only rcstack documents a

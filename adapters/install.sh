@@ -151,7 +151,7 @@ links="$(cd "$SRC" && find $STAGED_DIRS -type l -print)"
 [ -z "$links" ] || die "source contains symbolic links, refusing to stage them: $(printf '%s' "$links" | tr '\n' ' ')"
 
 # Only a checkout that passes its own validator is promoted.
-if ! verify_out="$(node "$SRC/scripts/verify.mjs" --root "$SRC" --quiet 2>&1)"; then
+if ! verify_out="$(node "$SRC/scripts/verify.mjs" --root "$SRC" --include-ignored --quiet 2>&1)"; then
   printf '%s\n' "$verify_out" >&2
   die "the source checkout does not pass scripts/verify.mjs; nothing was changed"
 fi

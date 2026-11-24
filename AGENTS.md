@@ -22,15 +22,15 @@ Binding rules for every agent or human changing this repository. The system spec
 
 - `skills/` holds exactly 5 directories: `rc-router`, `rc-setup`, `rc-init`, `rc-doctor`, `rc-retro`.
 - The 12 playbooks plus `TEMPLATE.md` live only under `skills/rc-router/playbooks/`, split into
-  `engineering/` (7), `study/` (3), and `research/` (2). No other `playbooks` directory may exist
-  outside `specs/`.
-- The repository root, `docs/`, `scripts/`, `contracts/`, `profiles/`, `rules/`, `adapters/` and
-  `tests/` are closed sets fixed by the system spec's tree. Adding a skill, playbook, script,
-  contract, or top-level entry is a spec change.
+  `engineering/` (7), `study/` (3), and `research/` (2). No `playbooks/` at the root.
+- `docs/`, `scripts/`, `contracts/`, `profiles/`, `rules/`, `adapters/` and `tests/` are closed
+  sets fixed by the system spec's tree; adding a skill, playbook, script, or contract is a spec
+  change. The root is open: a custom top-level entry (`.archive/`, ...) is never judged, and
+  untracked git-ignored paths are skipped, except by the installer's check (DEC-015).
 - `specs/` holds every spec, the system spec included, and no spec lives anywhere else. Every
   directory under it contains a `spec.md`, so a sub-spec sits inside its parent spec's directory,
   with the feature's other documents (`requirements.md`, `planning.md`, ...) beside it.
-- No symbolic links anywhere in the source tree. No `package.json` dependencies, ever.
+- No symbolic links in the owned source tree. No `package.json` dependencies, ever.
 
 ## Model-Agnosticism
 

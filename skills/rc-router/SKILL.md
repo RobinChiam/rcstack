@@ -51,6 +51,10 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
      fall back to `~/.rcstack/dist/defaults/profiles/<profile>.yaml` and say so.
    - Read `~/.rcstack/dist/rules/<domain>.md` and apply it for the whole run.
    - Read the target repository's `AGENTS.md` and `docs/decisions.md`. Repo law outranks this skill.
+   - Leave out of context every path git ignores (`git check-ignore -q <path>` exits `0`) and
+     every path under the optional `Ignored / Archived Paths:` list in `AGENTS.md`. Listed paths
+     are read-only and non-authoritative: no playbook reads rules from them, edits them, or
+     prunes them, and no slice may own one unless the human asks for that path by name.
    - If the repository has a `specs/` directory, find the spec directory the request belongs to
      and read its `spec.md` and the `spec.md` of every parent directory, outermost first. A parent
      spec constrains its sub-specs.

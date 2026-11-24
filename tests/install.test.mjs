@@ -503,6 +503,30 @@ describe('refusals', () => {
     }
   });
 
+  test('installs with a git-ignored custom directory, but refuses an ignored file in a directory it copies', () => {
+    const source = copySource();
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' };
+    assert.equal(spawnSync('git', ['-C', source, 'init', '-q'], { env }).status, 0);
+    fs.writeFileSync(path.join(source, '.gitignore'), '.archive/\n*.local.md\n');
+    fs.mkdirSync(path.join(source, '.archive/playbooks'), { recursive: true });
+    fs.writeFileSync(path.join(source, '.archive/playbooks/old.md'), 'old\n');
+    fs.symlinkSync(os.tmpdir(), path.join(source, '.archive/link-out'));
+    const hidden = path.join(source, 'skills/rc-setup/notes.local.md');
+    fs.writeFileSync(hidden, 'never reviewed\n');
+    const home = freshHome();
+    for (const args of [['--dry-run'], []]) {
+      const res = install(home, args, { script: path.join(source, 'adapters/install.sh') });
+      assert.notEqual(res.status, 0);
+      assert.match(res.stderr, /skills\/rc-setup\/notes\.local\.md is not part of the system spec's tree/);
+      assert.deepEqual(snapshot(home), []);
+    }
+    fs.rmSync(hidden);
+    const res = install(home, [], { script: path.join(source, 'adapters/install.sh') });
+    assert.equal(res.status, 0, res.out);
+    assert.equal(snapshot(path.join(home, '.rcstack')).some((entry) => /archive|link-out|old\.md/.test(entry)), false, 'nothing from the custom directory was installed');
+    assertLinks(home);
+  });
+
   test('refuses a source that fails its own verify', () => {
     const source = copySource();
     const playbook = path.join(source, 'skills/rc-router/playbooks/study/socratic-session.md');
