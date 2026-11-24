@@ -17,7 +17,7 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
   rcstack could not safely build rcstack.
 - **Guardrail:** `tests/install.test.mjs` asserts every harness symlink resolves to
   `<rcstack-home>/dist/skills/*` and never into the source. `scripts/verify.mjs` rejects any
-  symbolic link in the source tree.
+  symbolic link in the owned source tree (narrowed to the owned directories by DEC-015).
 
 ## DEC-002 — Exactly five top-level skills
 
@@ -43,7 +43,7 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
   skills. Either makes a playbook directly invocable, bypassing profile selection, risk-tier
   classification, and reviewer resolution.
 - **Guardrail:** `scripts/verify.mjs` fails on a `playbooks` directory anywhere else (outside
-  `specs/`, as narrowed by DEC-013), on any file outside the exact 12 plus `TEMPLATE.md`, and on a
+  `specs/` and custom root directories, as narrowed by DEC-013 and DEC-015), on any file outside the exact 12 plus `TEMPLATE.md`, and on a
   missing or reworded `ROUTER-ONLY:` rule.
 
 ## DEC-004 — Assurance ladder `A0`-`A3` is computed, never self-rated
@@ -190,7 +190,7 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
 ## DEC-013 — Feature-local specs live under `specs/`
 
 - **Date:** 2026-11-24
-- **Status:** Accepted (amended by DEC-014)
+- **Status:** Accepted (amended by DEC-014 and DEC-015)
 - **Decision:** Each feature keeps its spec and the documents written while changing and
   implementing it in its own directory under `specs/`. Every directory under `specs/`, at any
   depth, holds a `spec.md`, so a sub-spec always sits inside its parent spec's directory and is
@@ -225,3 +225,31 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
   and lists only real files and directories inside the checkout, so a pipe or a link in place of
   any document or directory fails the check instead of hanging it or bringing in outside files.
   `tests/verify.test.mjs` reads the model stack table from it and compares the shipped profiles.
+
+## DEC-015 — The root is open; structure is enforced inside owned subtrees, and git decides what is ignored
+
+- **Date:** 2026-11-24
+- **Status:** Accepted
+- **Decision:** `scripts/verify.mjs` enforces exact membership only inside the directories rcstack
+  owns (`skills/`, its playbooks tree, `profiles/`, `contracts/`, `rules/`, `scripts/`,
+  `adapters/`, `tests/`, `docs/`, `specs/`). The repository root is open: any other top-level
+  entry, tracked or not, is neither listed nor read. Three root names stay forbidden whether or
+  not git ignores them: `playbooks`, `SPEC.md`/`spec.md`, and `node_modules`. Inside the owned
+  directories, paths that git ignores and does not track are skipped by default. This amends
+  DEC-013, which kept the root closed.
+- **Rejected Alternative:** The closed root of DEC-012 and DEC-013: a local, git-ignored
+  `.archive/` made verify, 32 tests and the installer fail in a checkout whose committed tree was
+  valid. Also rejected: parsing `.gitignore` in the validator (it would disagree with git on
+  negation, nesting and the user's excludes file); skipping ignored paths in the installer's
+  check too (the installer copies whole directories, so an ignored file there would reach
+  `dist/` unjudged); and judging custom directories with the symlink and playbooks rules (an
+  archive of old work legitimately holds both).
+- **Guardrail:** The ignored set comes only from `git ls-files --others --ignored
+  --exclude-standard`, so a tracked file is never in it, and any git failure or a root outside a
+  worktree yields an empty set: everything is judged. `adapters/install.sh` runs verify with
+  `--include-ignored`. `scripts/rc-receipt.mjs` is unchanged: its boundary check reads the commit
+  range, where ignore rules do not apply. `tests/verify.test.mjs` proves that an ignored or
+  tracked `.archive/` passes, that a rogue skill, playbook or root `playbooks/` still fails, that
+  a tracked file matching an ignore pattern is still judged, and that an ignore rule cannot excuse
+  a missing file; `tests/install.test.mjs` proves the installer refuses an ignored file in a
+  directory it copies.

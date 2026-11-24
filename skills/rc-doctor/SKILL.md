@@ -38,6 +38,11 @@ Find where a repository has drifted from its own rules, and fix only what the hu
 
 1. **Diagnose, read-only.** Change nothing in this step.
    - Read `AGENTS.md` and `docs/decisions.md`. They define healthy for this repository.
+   - Set the scope first. Skip every path git ignores (`git check-ignore -q <path>` exits `0`),
+     and every path under the optional `Ignored / Archived Paths:` list in `AGENTS.md`. Those
+     listed paths are committed but read-only and non-authoritative: never report doc drift in
+     them, never treat them as a source of rules, and never propose pruning or editing them.
+     A top-level directory the law does not mention is not a finding by itself.
    - Run the canonical verify command and record its exit code and failures.
    - Check each rule in `AGENTS.md` against the tree, and each `Guardrail` in the decisions log
      against the check it names: does that check exist, and does it run?

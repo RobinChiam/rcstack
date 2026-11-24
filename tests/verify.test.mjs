@@ -1,5 +1,5 @@
 // Hermetic tests for scripts/verify.mjs. Every mutation happens in a copy under os.tmpdir().
-import { test, describe, after } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,6 +18,10 @@ import {
   checkProfileText,
   checkSpecsTree,
   SYSTEM_SPEC,
+  OWNED_DIRS,
+  FORBIDDEN_ROOT_ENTRIES,
+  gitIgnoredPaths,
+  runSpecsCheck,
   sameModel,
   normalizeModelName,
   runVerify,
@@ -409,16 +413,10 @@ describe('repository validation', () => {
     }, /skills exists but is not a directory/, 1);
   });
 
-  test("fails on anything at the repository root or in docs/ that is outside the system spec's tree", () => {
-    expectFailure((root) => {
-      fs.mkdirSync(path.join(root, 'drafts/idea'), { recursive: true });
-      fs.writeFileSync(path.join(root, 'drafts/idea/spec.md'), '# draft\n');
-    }, /drafts is not part of the system spec's tree/, 1);
-    expectFailure((root) => fs.writeFileSync(path.join(root, 'spec.md'), '# stray\n'), /spec\.md is not part of the system spec's tree/, 1);
+  test('fails on a forbidden root entry and on a stray file in docs/', () => {
+    expectFailure((root) => fs.writeFileSync(path.join(root, 'spec.md'), '# stray\n'), /spec\.md must not exist at the repository root/, 1);
     // No spec lives at the root any more, not even a copy of the system spec.
-    expectFailure((root) => fs.copyFileSync(path.join(root, SYSTEM_SPEC), path.join(root, 'SPEC.md')), /SPEC\.md is not part of the system spec's tree/, 1);
-    expectFailure((root) => fs.mkdirSync(path.join(root, '.rcstack/state'), { recursive: true }), /\.rcstack is not part of the system spec's tree/, 1);
-    expectFailure((root) => fs.writeFileSync(path.join(root, 'NOTES.md'), 'x\n'), /NOTES\.md is not part of the system spec's tree/, 1);
+    expectFailure((root) => fs.copyFileSync(path.join(root, SYSTEM_SPEC), path.join(root, 'SPEC.md')), /SPEC\.md must not exist at the repository root/, 1);
     expectFailure((root) => fs.writeFileSync(path.join(root, 'docs/plan.md'), 'x\n'), /docs\/plan\.md is not part of the system spec's tree/, 1);
   });
 
@@ -537,7 +535,7 @@ describe('repository validation', () => {
       2,
     );
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('      driver_kind: "external"\n      model: "Gemini Notebook"', '      driver_kind: "external"\n      model: "gemini-4-hydrogen"')),
+      (root) => edit(root, profile, (t) => t.replace('    paired:\n      driver_kind: "codex"\n      model: "GPT 6.2 Astra"', '    paired:\n      driver_kind: "codex"\n      model: "gemini-4-hydrogen"')),
       /quick_lookup is exclusive but "Gemini 4 Hydrogen" is also bound/,
       2,
     );
@@ -551,7 +549,7 @@ describe('repository validation', () => {
     expectFailure((root) => edit(root, profile, (t) => t.replace('default_fallback: "Cursor Grok 4.7"', 'default_fallback: "gpt-astra-6.2"')), /default_fallback "gpt-astra-6\.2" is also a builder model/, 2);
     // A binding spelled as a catalog id is still covered by, and judged against, its matrix entry.
     const root = copyRepo();
-    edit(root, profile, (t) => t.replace('    model: "GPT 6.2 Sol"\n    secondary:', '    model: "gpt-6.2-sol"\n    secondary:'));
+    edit(root, profile, (t) => t.replace('    model: "Claude Fable 5.2"\n    secondary:', '    model: "claude-fable-5-2"\n    secondary:'));
     assert.equal(failures(root, 2), '');
   });
 
@@ -578,7 +576,7 @@ describe('repository validation', () => {
 
   test('fails when an exclusive model is bound to a second capability', () => {
     expectFailure(
-      (root) => edit(root, 'profiles/rcstack-engineering.yaml', (t) => t.replace('      driver_kind: "external"\n      model: "Gemini Notebook"', '      driver_kind: "external"\n      model: "Gemini 4 Hydrogen"')),
+      (root) => edit(root, 'profiles/rcstack-study.yaml', (t) => t.replace('      driver_kind: "external"\n      model: "Gemini Notebook"', '      driver_kind: "external"\n      model: "Gemini 4 Hydrogen"')),
       /quick_lookup is exclusive but "Gemini 4 Hydrogen" is also bound/,
       2,
     );
@@ -899,7 +897,7 @@ describe('feature-local specs', () => {
     assert.ok(fs.existsSync(path.join(ROOT, SYSTEM_SPEC)));
     assert.equal(fs.existsSync(path.join(ROOT, 'SPEC.md')), false, 'nothing is left at the root');
     expectFailure((root) => fs.rmSync(path.join(root, SYSTEM_SPEC)), /S1 required file specs\/initialization-build\/spec\.md/, 1);
-    expectFailure((root) => fs.renameSync(path.join(root, SYSTEM_SPEC), path.join(root, 'SPEC.md')), /S1 required file specs\/initialization-build\/spec\.md[\s\S]*SPEC\.md is not part of the system spec's tree/, 1);
+    expectFailure((root) => fs.renameSync(path.join(root, SYSTEM_SPEC), path.join(root, 'SPEC.md')), /S1 required file specs\/initialization-build\/spec\.md[\s\S]*SPEC\.md must not exist at the repository root/, 1);
     expectFailure(
       (root) => edit(root, SYSTEM_SPEC, (t) => `${t}\nSee \`scripts/not-in-the-tree.mjs\`.\n`),
       /specs\/initialization-build\/spec\.md refers to scripts\/not-in-the-tree\.mjs, which does not exist/,
@@ -938,7 +936,7 @@ describe('feature-local specs', () => {
       assert.ok(fs.readFileSync(path.join(linkedDir, SYSTEM_SPEC), 'utf8').includes('leaked-from-outside'), `${rel}: the outside spec is reachable through the link`);
       const report = failures(linkedDir);
       assert.match(report, /S1 required file specs\/initialization-build\/spec\.md\nmissing/, rel);
-      assert.match(report, /S1 no symbolic links in the source tree/, rel);
+      assert.match(report, /S1 no symbolic links in the owned source tree/, rel);
       assert.doesNotMatch(report, /leaked-from-outside/, rel);
     }
 
@@ -992,7 +990,7 @@ describe('feature-local specs', () => {
 
       const report = runVerify({ root, slice: 3 });
       const text = report.failures.map((f) => `${f.name}\n${f.errors.join('\n')}`).join('\n');
-      assert.match(text, /S1 no symbolic links in the source tree/, rel);
+      assert.match(text, /S1 no symbolic links in the owned source tree/, rel);
       assert.doesNotMatch(text, /OUTSIDE-SENTINEL/, `${rel}: no outside file name reaches the report`);
       const top = rel.split('/')[0];
       const passed = report.results.filter((res) => res.ok && new RegExp(`^S[123] ${rel.replace(/[/]/g, '\\/')}\\/ holds exactly`).test(res.name));
@@ -1093,6 +1091,285 @@ describe('feature-local specs', () => {
     assert.match(sliced.stderr, /--profile cannot be combined with --slice/);
     assert.equal(cli(ROOT, ['--specs', `${good}///`, '--quiet']).status, 0, 'trailing slashes on a real directory are fine');
     assert.equal(cli(ROOT, ['--specs', path.join(ROOT, 'specs')]).status, 0, 'the repository\'s own specs tree is valid');
+  });
+});
+
+describe('custom top-level paths and git-ignored paths (DEC-015)', () => {
+  // Every git call in this suite, in this process or a child, sees no host configuration and no
+  // host excludes file: HOME and XDG_CONFIG_HOME point at an empty temporary directory.
+  const ISOLATED = ['HOME', 'XDG_CONFIG_HOME', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM'];
+  const savedEnv = {};
+  before(() => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-githome-'));
+    tmpDirs.push(home);
+    for (const key of ISOLATED) savedEnv[key] = process.env[key];
+    Object.assign(process.env, { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' });
+  });
+  after(() => {
+    for (const key of ISOLATED) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+  });
+  const git = (root, ...args) => {
+    const res = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8' });
+    assert.equal(res.status, 0, `git ${args.join(' ')}: ${res.stderr}`);
+    return res.stdout;
+  };
+  const write = (root, rel, text = 'x\n') => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  };
+  /** A copy of the repository that is its own git worktree, with everything in it tracked. */
+  const gitRepo = (ignore = '') => {
+    const root = copyRepo();
+    git(root, 'init', '-q');
+    if (ignore) write(root, '.gitignore', ignore);
+    git(root, 'add', '-A');
+    return root;
+  };
+  /** Everything a hostile archive could hold: stray documents, a playbooks tree, a skill, a link. */
+  const fillArchive = (root, dir = '.archive') => {
+    write(root, `${dir}/notes.md`, '# old notes\n\nSee `scripts/long-gone.mjs`.\n');
+    write(root, `${dir}/SPEC.md`, '# an old spec\n');
+    write(root, `${dir}/playbooks/engineering/old-playbook.md`, 'not a playbook\n');
+    write(root, `${dir}/skills/rc-seventh/SKILL.md`, 'not a skill\n');
+    write(root, `${dir}/specs/No Spec Here/draft.txt`, 'draft\n');
+    write(root, `${dir}/package.json`, '{"dependencies":{"left-pad":"1"}}\n');
+    fs.symlinkSync(os.tmpdir(), path.join(root, dir, 'link-out'));
+  };
+
+  test('the root is open: the owned directories and the forbidden names are the whole rule', () => {
+    assert.deepEqual([...OWNED_DIRS].sort(), ['adapters', 'assets', 'contracts', 'docs', 'profiles', 'rules', 'scripts', 'skills', 'specs', 'tests']);
+    assert.deepEqual(Object.keys(FORBIDDEN_ROOT_ENTRIES).sort(), ['SPEC.md', 'playbooks', 'spec.md']);
+  });
+
+  test('a git-ignored .archive/ with arbitrary content passes', () => {
+    const root = gitRepo('.archive/\n');
+    fillArchive(root);
+    assert.deepEqual([...gitIgnoredPaths(root)], ['.archive/']);
+    assert.equal(failures(root), '');
+    const res = cli(root, ['--quiet']);
+    assert.equal(res.status, 0, res.stdout);
+  });
+
+  test('a custom top-level directory passes when tracked, when untracked, and outside any git worktree', () => {
+    const tracked = gitRepo();
+    fillArchive(tracked);
+    write(tracked, 'notes/todo.md');
+    write(tracked, 'LICENSE', 'MIT\n');
+    write(tracked, '.rcstack-local/state.json', '{}\n');
+    assert.equal(failures(tracked), '', 'untracked and not ignored');
+    git(tracked, 'add', '-A');
+    assert.match(git(tracked, 'ls-files'), /^\.archive\/notes\.md$/m);
+    assert.equal(failures(tracked), '', 'tracked');
+    assert.equal(runVerify({ root: tracked, includeIgnored: true }).ok, true, 'custom paths are not judged even with --include-ignored');
+
+    const plain = copyRepo();
+    fillArchive(plain);
+    write(plain, 'drafts/idea/spec.md', '# draft\n');
+    assert.deepEqual([...gitIgnoredPaths(plain)], [], 'outside a worktree nothing is ignored');
+    assert.equal(failures(plain), '');
+  });
+
+  test('owned subtrees stay exact: a rogue skill, playbook, script or root playbooks/ still fails', () => {
+    const cases = {
+      'skills/rc-rogue/SKILL.md': /skills\/rc-rogue is not one of the 5 approved skills/,
+      'skills/rc-router/playbooks/engineering/rogue.md': /playbooks\/engineering\/rogue\.md is not part of the system spec's tree/,
+      'skills/rc-router/playbooks/ops/x.md': /playbooks\/ops is not part of the system spec's tree/,
+      'skills/rc-init/playbooks/x.md': /playbooks live only under skills\/rc-router\/playbooks/,
+      'scripts/helper.mjs': /scripts\/helper\.mjs is not part of the system spec's tree/,
+      'profiles/extra.yaml': /profiles\/extra\.yaml/,
+      'contracts/extra.md': /contracts\/extra\.md is not part of the system spec's tree/,
+      'playbooks/x.md': /playbooks must not exist at the repository root/,
+    };
+    for (const [rel, pattern] of Object.entries(cases)) {
+      for (const tracked of [false, true]) {
+        const root = gitRepo();
+        write(root, rel);
+        if (tracked) git(root, 'add', '-A');
+        assert.match(failures(root), pattern, `${rel} (${tracked ? 'tracked' : 'untracked'})`);
+      }
+    }
+  });
+
+  test('a forbidden root entry fails even when git ignores it', () => {
+    // SPEC.md and spec.md live in separate repositories: on a filesystem that ignores case
+    // (default macOS) writing one would overwrite the other.
+    const root = gitRepo('/playbooks/\n/SPEC.md\n/node_modules/\n');
+    write(root, 'playbooks/x.md');
+    write(root, 'SPEC.md');
+    write(root, 'node_modules/left-pad/index.js');
+    assert.deepEqual([...gitIgnoredPaths(root)].sort(), ['SPEC.md', 'node_modules/', 'playbooks/']);
+    const report = failures(root);
+    assert.match(report, /node_modules\/ must not exist/);
+    assert.match(report, /playbooks must not exist at the repository root/);
+    assert.match(report, /SPEC\.md must not exist at the repository root/);
+
+    const lower = gitRepo('/spec.md\n');
+    write(lower, 'spec.md');
+    assert.deepEqual([...gitIgnoredPaths(lower)], ['spec.md']);
+    assert.match(failures(lower), /^spec\.md must not exist at the repository root/m);
+  });
+
+  test('an ignored root package.json that declares dependencies still fails', () => {
+    const root = gitRepo('/package.json\n');
+    write(root, 'package.json', '{"dependencies":{"left-pad":"1"}}\n');
+    assert.deepEqual([...gitIgnoredPaths(root)], ['package.json']);
+    assert.match(failures(root), /package\.json declares dependencies/);
+    assert.match(failures(root, 1), /package\.json declares dependencies/);
+  });
+
+  test('an ignored, untracked required file or directory is reported missing; tracked, it is judged', () => {
+    const cases = {
+      'AGENTS.md': /S1 required file AGENTS\.md\nmissing/,
+      'README.md': /S1 required file README\.md\nmissing/,
+      'skills/rc-router/SKILL.md': /S2 skill rc-router honours[^\n]*\nmissing/,
+      [SYSTEM_SPEC]: /S1 required file specs\/initialization-build\/spec\.md\nmissing/,
+      'docs/decisions.md': /S1 required file docs\/decisions\.md\nmissing/,
+      'scripts/rc-log.mjs': /scripts\/rc-log\.mjs is missing/,
+      'rules/': /rules\/ is missing/,
+      'skills/rc-retro/': /skills\/rc-retro is missing/,
+    };
+    for (const [rel, pattern] of Object.entries(cases)) {
+      const root = gitRepo();
+      write(root, '.gitignore', `/${rel}\n`);
+      assert.equal(failures(root), '', `${rel}: tracked, an ignore pattern matching it changes nothing`);
+      git(root, 'rm', '-r', '--cached', '-q', rel.replace(/\/$/, ''));
+      // Git may also list the emptied parent directory (as for the system spec), the collapsed form.
+      assert.ok(gitIgnoredPaths(root).has(rel), rel);
+      const report = failures(root);
+      assert.match(report, pattern, `${rel}: ignored and untracked`);
+      assert.doesNotMatch(report, /exists but is not a real directory/, rel);
+      assert.equal(cli(root, ['--quiet']).status, 1, `${rel}: the CLI fails too`);
+      assert.equal(runVerify({ root, includeIgnored: true }).ok, true, `${rel}: judged and valid with includeIgnored`);
+    }
+  });
+
+  test('an ignored path inside an owned subtree is skipped by default and judged with includeIgnored', () => {
+    const root = gitRepo('*.local.md\nscratch/\n.DS_Store\n');
+    write(root, 'skills/rc-setup/notes.local.md');
+    write(root, 'skills/scratch/anything.txt');
+    write(root, 'scripts/.DS_Store');
+    write(root, 'specs/.DS_Store');
+    write(root, 'specs/feature-local-specs/scratch/no-spec-here.txt');
+    assert.equal(failures(root), '');
+    const strict = runVerify({ root, includeIgnored: true }).failures.flatMap((f) => f.errors).join('\n');
+    assert.match(strict, /skills\/rc-setup\/notes\.local\.md is not part of the system spec's tree/);
+    assert.match(strict, /skills\/scratch is not one of the 5 approved skills/);
+    assert.match(strict, /scripts\/\.DS_Store is not part of the system spec's tree/);
+    assert.match(strict, /specs\/\.DS_Store is a loose file/);
+    assert.match(strict, /specs\/feature-local-specs\/scratch\/ has no spec\.md/);
+    assert.equal(cli(root, ['--quiet']).status, 0);
+    assert.equal(cli(root, ['--include-ignored', '--quiet']).status, 1);
+    assert.equal(cli(root, ['--include-ignored=yes']).status, 1, 'the flag takes no value');
+    assert.equal(cli(root, ['--profile', path.join(root, 'profiles/rcstack-study.yaml')]).status, 0);
+    assert.equal(cli(root, ['--profile', path.join(root, 'profiles/rcstack-study.yaml'), '--include-ignored']).status, 1, 'the flag does not apply to --profile');
+  });
+
+  test('listing ignored paths never runs a program named in the repository configuration', () => {
+    const root = gitRepo('.archive/\n');
+    fillArchive(root);
+    const marker = path.join(root, '.archive', 'fsmonitor-ran');
+    const hook = path.join(root, '.archive', 'hook.sh');
+    fs.writeFileSync(hook, `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+    git(root, 'config', 'core.fsmonitor', hook);
+    assert.deepEqual([...gitIgnoredPaths(root)], ['.archive/']);
+    assert.equal(failures(root), '');
+    assert.equal(fs.existsSync(marker), false);
+  });
+
+  test('--specs never points git at a directory reached through a link', () => {
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-outside-'));
+    tmpDirs.push(outside);
+    git(outside, 'init', '-q');
+    write(outside, '.gitignore', 'evil.txt\n');
+    write(outside, 'evil.txt');
+    const holder = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-target-'));
+    tmpDirs.push(holder);
+    fs.symlinkSync(outside, path.join(holder, 'specs'));
+    assert.deepEqual([...gitIgnoredPaths(path.join(holder, 'specs'))], ['evil.txt'], 'git itself would follow the link');
+    // A stand-in git that leaves a marker: if the check ran git at all, the marker would exist.
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-fakegit-'));
+    tmpDirs.push(bin);
+    const marker = path.join(bin, 'git-ran');
+    fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\ntouch "${marker}"\nexit 1\n`, { mode: 0o755 });
+    const savedPath = process.env.PATH;
+    process.env.PATH = `${bin}${path.delimiter}${savedPath}`;
+    try {
+      gitIgnoredPaths(holder);
+      assert.equal(fs.existsSync(marker), true, 'the stand-in is what a git call would run');
+      fs.rmSync(marker);
+      const r = runSpecsCheck({ specsPath: path.join(holder, 'specs'), label: 'specs' });
+      assert.deepEqual(r.failures.flatMap((f) => f.errors), ['specs exists but is not a directory']);
+      assert.equal(fs.existsSync(marker), false, 'git was not run on the linked directory');
+    } finally {
+      process.env.PATH = savedPath;
+    }
+  });
+
+  test('a tracked file is never skipped, even when an ignore pattern matches it', () => {
+    const root = gitRepo('*.local.md\n');
+    write(root, 'skills/rc-setup/notes.local.md');
+    assert.equal(failures(root), '', 'untracked and ignored: skipped');
+    git(root, 'add', '-f', 'skills/rc-setup/notes.local.md');
+    assert.deepEqual([...gitIgnoredPaths(root)], []);
+    assert.match(failures(root), /skills\/rc-setup\/notes\.local\.md is not part of the system spec's tree/);
+    // An ignore rule added after the fact cannot hide a tracked symbolic link either.
+    const linked = gitRepo();
+    fs.symlinkSync('SKILL.md', path.join(linked, 'skills/rc-setup/alias.md'));
+    git(linked, 'add', '-A');
+    write(linked, '.gitignore', 'alias.md\n');
+    assert.match(failures(linked), /skills\/rc-setup\/alias\.md is a symbolic link/);
+  });
+
+  test('an ignore rule cannot hide a required file from the missing-file checks', () => {
+    const root = gitRepo();
+    fs.rmSync(path.join(root, 'skills/rc-retro'), { recursive: true });
+    write(root, '.gitignore', 'skills/rc-retro/\n');
+    assert.match(failures(root), /skills\/rc-retro is missing/);
+  });
+
+  test('git environment variables naming another repository do not change what is ignored', () => {
+    const root = gitRepo('.archive/\n');
+    fillArchive(root);
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-other-'));
+    tmpDirs.push(other);
+    git(other, 'init', '-q');
+    const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
+    process.env.GIT_DIR = path.join(other, '.git');
+    process.env.GIT_WORK_TREE = other;
+    try {
+      assert.deepEqual([...gitIgnoredPaths(root)], ['.archive/']);
+    } finally {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  test('--specs skips ignored entries of a target repository unless asked not to', () => {
+    const target = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-target-'));
+    tmpDirs.push(target);
+    git(target, 'init', '-q');
+    write(target, '.gitignore', '.DS_Store\ntmp/\n');
+    write(target, 'specs/payments/spec.md', '# Spec: payments\n');
+    write(target, 'specs/.DS_Store');
+    write(target, 'specs/payments/tmp/scratch.txt');
+    const specsPath = path.join(target, 'specs');
+    assert.equal(runSpecsCheck({ specsPath, label: 'specs' }).ok, true);
+    const strict = runSpecsCheck({ specsPath, label: 'specs', includeIgnored: true });
+    assert.deepEqual(strict.failures.flatMap((f) => f.errors), [
+      'specs/.DS_Store is a loose file: specs/ holds only spec directories',
+      'specs/payments/tmp/ has no spec.md: every directory under specs/ is a spec directory, and a sub-spec lives inside its parent\'s',
+    ]);
+    assert.equal(cli(ROOT, ['--specs', specsPath, '--quiet']).status, 0);
+    assert.equal(cli(ROOT, ['--specs', specsPath, '--include-ignored', '--quiet']).status, 1);
+    // An ignored spec.md does not count: it would never be committed.
+    write(target, '.gitignore', 'spec.md\n');
+    write(target, 'specs/payments/requirements.md', 'requirements\n');
+    assert.match(runSpecsCheck({ specsPath, label: 'specs' }).failures.flatMap((f) => f.errors).join('\n'), /specs\/payments\/ has no spec\.md/);
   });
 });
 

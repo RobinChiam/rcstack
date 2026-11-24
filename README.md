@@ -58,6 +58,18 @@ specification; a feature spec describes one change on top of it. `specs/` is sou
 never installed, and it never holds task state or telemetry. Check any repository's tree with
 `node scripts/verify.mjs --specs <dir>`.
 
+## Custom and ignored paths
+
+The validator fixes the contents of the directories rcstack owns (`skills/`, `profiles/`,
+`contracts/`, `scripts/`, ...) and nothing else. The repository root is open: a custom top-level
+entry such as `.archive/` or `LICENSE` is never listed or read, tracked or not. Only `playbooks`,
+`SPEC.md`, `spec.md` and `node_modules` are refused there.
+
+Inside the owned directories, paths that git ignores and does not track (an editor's scratch
+file, `.DS_Store`) are skipped. Git decides what is ignored; a tracked file is always judged.
+`node scripts/verify.mjs --include-ignored` judges those paths too, and the installer always runs
+it that way, because it copies whole directories into `dist/`.
+
 ## Install
 
 ```bash
@@ -122,10 +134,10 @@ fallback, `sec` the secondary.
 | :--- | :--- | :--- | :--- |
 | `systems_research` | GPT 6.2 Astra (fb Gemini 4 Neon) | GPT 6.2 Astra (fb Claude Fable 5.2) | GPT 6.2 Astra (fb Claude Opus 5.5) |
 | `architect_blueprint` | Claude Fable 5.2 (fb GPT 6.2 Astra) | same | same |
-| `primary_builder` | Gemini 4 Neon (fb GPT 6.2 Sol) | Gemini 4 Neon (fb Claude Sonnet 5.5) | Gemini 4 Neon (fb GPT 6.2 Sol) |
-| `security_builder` | Claude Opus 5.5 (fb GPT 6.2 Astra) | same | same |
-| `vibe_executor` | GPT 6.2 Sol (sec Gemini 4 Neon, fb Claude Sonnet 5.5) | same | same |
-| `deep_grounding` | Gemini 4 Neon (paired GPT 6.2 Astra, companion Gemini Notebook, fb GPT 6.2 Astra) | same | same |
+| `primary_builder` | Claude Opus 5.5 (sec Gemini 4 Neon, fb GPT 6.2 Sol) | Gemini 4 Neon (fb Claude Sonnet 5.5) | Gemini 4 Neon (fb GPT 6.2 Sol) |
+| `security_builder` | Gemini 4 Neon (sec Claude Opus 5.5, fb GPT 6.2 Astra) | Claude Opus 5.5 (fb GPT 6.2 Astra) | Claude Opus 5.5 (fb GPT 6.2 Astra) |
+| `vibe_executor` | Claude Fable 5.2 (sec Gemini 4 Neon, fb GPT 6.2 Sol) | GPT 6.2 Sol (sec Gemini 4 Neon, fb Claude Sonnet 5.5) | GPT 6.2 Sol (sec Gemini 4 Neon, fb Claude Sonnet 5.5) |
+| `deep_grounding` | Gemini 4 Carbon (paired GPT 6.2 Astra, fb GPT 6.2 Astra) | Gemini 4 Neon (paired GPT 6.2 Astra, companion Gemini Notebook, fb GPT 6.2 Astra) | Gemini 4 Neon (paired GPT 6.2 Astra, companion Gemini Notebook, fb GPT 6.2 Astra) |
 | `quick_lookup` | Gemini 4 Hydrogen (exclusive) | same | same |
 
 Reviewers come from `review_matrix`, keyed by whoever built the work:
@@ -146,7 +158,7 @@ cannot be switched off by any profile.
 
 | Script | Purpose |
 | :--- | :--- |
-| `scripts/verify.mjs` | Validates this repo against the system spec (`--slice=1|2|3`), one profile (`--profile`), or one specs tree (`--specs`) |
+| `scripts/verify.mjs` | Validates this repo against the system spec (`--slice=1|2|3`), one profile (`--profile`), or one specs tree (`--specs`); skips git-ignored paths unless `--include-ignored` |
 | `scripts/rc-state.mjs` | Locked, revision-checked task state with a shadow git commit per transition |
 | `scripts/rc-receipt.mjs` | 4-point Work Receipt admission gate; computes `A0`-`A3` |
 | `scripts/rc-log.mjs` | Schema-validated JSONL telemetry appender |

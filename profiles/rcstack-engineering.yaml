@@ -46,35 +46,38 @@ capabilities:
       driver_kind: "codex"
       model: "GPT 6.2 Astra"
   primary_builder:
-    driver_kind: "antigravity"
-    model: "Gemini 4 Neon"
-    fallback:
-      driver_kind: "codex"
-      model: "GPT 6.2 Sol"
-  security_builder:
     driver_kind: "claudeAgent"
     model: "Claude Opus 5.5"
-    fallback:
-      driver_kind: "codex"
-      model: "GPT 6.2 Astra"
-  vibe_executor:
-    driver_kind: "codex"
-    model: "GPT 6.2 Sol"
     secondary:
       driver_kind: "antigravity"
       model: "Gemini 4 Neon"
     fallback:
-      driver_kind: "claudeAgent"
-      model: "Claude Sonnet 5.5"
-  deep_grounding:
+      driver_kind: "codex"
+      model: "GPT 6.2 Sol"
+  security_builder:
     driver_kind: "antigravity"
     model: "Gemini 4 Neon"
+    secondary:
+      driver_kind: "claudeAgent"
+      model: "Claude Opus 5.5"
+    fallback:
+      driver_kind: "codex"
+      model: "GPT 6.2 Astra"
+  vibe_executor:
+    driver_kind: "claudeAgent"
+    model: "Claude Fable 5.2"
+    secondary:
+      driver_kind: "antigravity"
+      model: "Gemini 4 Neon"
+    fallback:
+      driver_kind: "codex"
+      model: "GPT 6.2 Sol"
+  deep_grounding:
+    driver_kind: "antigravity"
+    model: "Gemini 4 Carbon"
     paired:
       driver_kind: "codex"
       model: "GPT 6.2 Astra"
-    companion:
-      driver_kind: "external"
-      model: "Gemini Notebook"
     fallback:
       driver_kind: "codex"
       model: "GPT 6.2 Astra"

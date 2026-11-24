@@ -2,9 +2,9 @@
 /**
  * scripts/verify.mjs — repo invariant & contract validator for rcstack-beta.
  *
- *   node scripts/verify.mjs [--slice=1|2|3] [--root <dir>] [--quiet]
+ *   node scripts/verify.mjs [--slice=1|2|3] [--root <dir>] [--include-ignored] [--quiet]
  *   node scripts/verify.mjs --profile <file.yaml> [--schema <schema.json>] [--quiet]
- *   node scripts/verify.mjs --specs <dir> [--quiet]
+ *   node scripts/verify.mjs --specs <dir> [--include-ignored] [--quiet]
  *
  * "System spec" below means specs/initialization-build/spec.md, the canonical specification.
  *
@@ -49,23 +49,25 @@ export const PLAYBOOKS = Object.freeze([
 ]);
 
 /**
- * Everything allowed at the repository root: the system spec section 1.A tree, plus `assets/`,
- * which holds the README icon that the initial commit shipped. No spec lives at the root.
+ * The top-level directories this repository owns (system spec section 1.A, plus `assets/` for the
+ * README icon). Structure is judged only inside them. The root itself is open: any other
+ * top-level entry, tracked or not, is a custom path that the validator neither lists nor reads
+ * (docs/decisions.md DEC-015).
  */
-export const TOP_LEVEL_ENTRIES = Object.freeze([
-  'README.md',
-  'AGENTS.md',
-  'assets',
-  'docs',
-  'specs',
-  'rules',
-  'profiles',
-  'contracts',
-  'skills',
-  'scripts',
-  'adapters',
-  'tests',
-]);
+export const OWNED_DIRS = Object.freeze(['assets', 'docs', 'specs', 'rules', 'profiles', 'contracts', 'skills', 'scripts', 'adapters', 'tests']);
+
+/** The root files the validator requires and reads. */
+export const ROOT_FILES = Object.freeze(['README.md', 'AGENTS.md']);
+
+/**
+ * Names that may never exist at the repository root, whatever they are and whether or not git
+ * ignores them. `node_modules` is the third; the dependency check reports it.
+ */
+export const FORBIDDEN_ROOT_ENTRIES = Object.freeze({
+  playbooks: 'playbooks live only under skills/rc-router/playbooks/',
+  'SPEC.md': `the system spec lives at ${SYSTEM_SPEC}`,
+  'spec.md': `the system spec lives at ${SYSTEM_SPEC}`,
+});
 
 export const DOMAINS = Object.freeze(['engineering', 'study', 'research']);
 export const PROFILE_NAMES = Object.freeze(DOMAINS.map((d) => `rcstack-${d}`));
@@ -1002,13 +1004,17 @@ function lstat(p) {
 /**
  * What `rel` is, looking only at real entries inside `root`: 'file', 'directory', or null. Every
  * component on the way must be a real directory, so nothing reached through a symbolic link
- * counts, and neither does a link, pipe, socket or device at the end of the path.
+ * counts, and neither does a link, pipe, socket or device at the end of the path. A path that git
+ * ignores and does not track, or that sits inside such a directory, is null too: an ignore rule
+ * can never excuse a required entry, which is then reported missing. Only a check of a forbidden
+ * entry passes `evenIfIgnored`, because being ignored must not hide that entry either.
  */
-function entryKind(root, rel) {
+function entryKind(root, rel, { evenIfIgnored = false } = {}) {
   const segments = String(rel).split('/');
   if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) return null;
   let current = root;
   for (let i = 0; i < segments.length; i += 1) {
+    if (!evenIfIgnored && isIgnored(root, segments.slice(0, i + 1).join('/'))) return null;
     current = path.join(current, segments[i]);
     const st = lstat(current);
     if (!st) return null;
@@ -1018,8 +1024,8 @@ function entryKind(root, rel) {
   return null;
 }
 
-function isFile(root, rel) {
-  return entryKind(root, rel) === 'file';
+function isFile(root, rel, options) {
+  return entryKind(root, rel, options) === 'file';
 }
 
 function isDir(root, rel) {
@@ -1028,10 +1034,11 @@ function isDir(root, rel) {
 
 /**
  * The text of a regular file inside `root`, or null. It never opens anything else: reading a pipe
- * would block forever, and following a link would read a file from outside the checkout.
+ * would block forever, and following a link would read a file from outside the checkout. Like
+ * entryKind(), it treats an ignored, untracked path as absent unless `evenIfIgnored` is set.
  */
-function read(root, rel) {
-  if (!isFile(root, rel)) return null;
+function read(root, rel, options) {
+  if (!isFile(root, rel, options)) return null;
   try {
     return fs.readFileSync(path.join(root, rel), 'utf8');
   } catch {
@@ -1039,24 +1046,64 @@ function read(root, rel) {
   }
 }
 
+/** Environment variables that point git at another repository; a hook or wrapper may have set them. */
+const GIT_LOCATION_ENV = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_PREFIX'];
+
+/**
+ * The paths under `dir` that git ignores and does not track, relative to `dir`; an ignored
+ * directory is one entry ending in "/". Git decides, so every ignore source it honours counts
+ * (`.gitignore`, `.git/info/exclude`, the user's excludes file) and none is parsed here. A
+ * tracked file is never in the set, even when an ignore pattern matches it: only untracked paths
+ * are listed. Outside a git worktree, or when git fails for any reason, the set is empty, which
+ * means nothing is skipped and every path is judged.
+ */
+export function gitIgnoredPaths(dir) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !GIT_LOCATION_ENV.includes(key)));
+  // core.fsmonitor can name a program; listing files must never run one.
+  const args = ['-c', 'core.fsmonitor=false', '-C', dir, 'ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'];
+  const res = spawnSync('git', args, { encoding: 'utf8', env, maxBuffer: 64 * 1024 * 1024 });
+  if (res.error || res.status !== 0) return new Set();
+  return new Set(res.stdout.split('\0').filter(Boolean));
+}
+
+/** Ignored-path sets of the repositories being verified, keyed by root. Set and cleared by runVerify(). */
+const IGNORED = new Map();
+
+function isIgnored(root, rel) {
+  const set = IGNORED.get(root);
+  return set !== undefined && (set.has(rel) || set.has(`${rel}/`));
+}
+
+/** Whether `rel` or any directory on the way to it is ignored (git collapses an ignored directory to one entry). */
+function isIgnoredPath(root, rel) {
+  const segments = String(rel).split('/');
+  return segments.some((_, i) => isIgnored(root, segments.slice(0, i + 1).join('/')));
+}
+
 /**
  * The entries of a real directory inside `root` (or of `root` itself), or null. A directory
  * reached through a symbolic link is never listed: its files live outside the checkout, and
- * judging them would let outside content pass a check or show up in the report.
+ * judging them would let outside content pass a check or show up in the report. Entries that git
+ * ignores are left out unless the run asked for them (`--include-ignored`).
  */
 function listDir(root, rel) {
   if (rel !== '' && !isDir(root, rel)) return null;
   try {
-    return fs.readdirSync(path.join(root, rel), { withFileTypes: true });
+    return fs
+      .readdirSync(path.join(root, rel), { withFileTypes: true })
+      .filter((ent) => !isIgnored(root, rel ? `${rel}/${ent.name}` : ent.name));
   } catch {
     return null;
   }
 }
 
-/** Every entry under root (repo-relative, `.git` skipped). Symlinks are reported, never followed. */
+/**
+ * Every entry of the owned tree: the root files, the owned directories, and all they contain
+ * (repo-relative). Custom top-level entries are not walked. Symlinks are reported, never followed.
+ */
 function walk(root, rel = '', out = []) {
   for (const ent of listDir(root, rel) ?? []) {
-    if (rel === '' && ent.name === '.git') continue;
+    if (rel === '' && !OWNED_DIRS.includes(ent.name) && !ROOT_FILES.includes(ent.name)) continue;
     const p = rel ? `${rel}/${ent.name}` : ent.name;
     out.push({ path: p, ent });
     if (ent.isDirectory()) walk(root, p, out);
@@ -1067,7 +1114,11 @@ function walk(root, rel = '', out = []) {
 /** Fail unless `rel` is a directory containing exactly `expected`; `kind` is 'file', 'directory' or null (any). */
 function exactEntries(root, rel, expected, kind) {
   const entries = listDir(root, rel);
-  if (!entries) return [lstat(path.join(root, rel)) ? `${rel} exists but is not a real directory` : `${rel}/ is missing`];
+  if (!entries) {
+    // An ignored, untracked directory counts as absent, like any other ignored path.
+    const present = lstat(path.join(root, rel)) && !isIgnoredPath(root, rel);
+    return [present ? `${rel} exists but is not a real directory` : `${rel}/ is missing`];
+  }
   const errors = [];
   const names = entries.map((e) => e.name);
   for (const want of expected) {
@@ -1096,9 +1147,10 @@ const SPEC_DIR_NAME = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  * a non-empty `spec.md`, so a sub-spec always sits inside its parent spec's directory. Any other
  * regular file may sit beside a `spec.md`. Only the shape of the tree is judged: deciding what a
  * document says would take a Markdown parser, and a validator that misreads prose is worse than
- * one that does not read it.
+ * one that does not read it. `ignored` is a gitIgnoredPaths() set relative to `dir`; those entries
+ * are skipped as if they were absent.
  */
-export function checkSpecsTree(dirArg, label = 'specs') {
+export function checkSpecsTree(dirArg, label = 'specs', { ignored = new Set() } = {}) {
   if (typeof dirArg !== 'string' || dirArg === '') return [`${label}/ does not exist`];
   // Resolve the path lexically first: a trailing "/" or "/." would make lstat follow a symlinked
   // specs directory instead of seeing the link.
@@ -1107,10 +1159,10 @@ export function checkSpecsTree(dirArg, label = 'specs') {
   if (!top) return [`${label}/ does not exist`];
   if (!top.isDirectory()) return [`${label} exists but is not a directory`];
   const errors = [];
-  const visit = (abs, rel, depth) => {
+  const visit = (abs, rel, depth, sub = '') => {
     let entries;
     try {
-      entries = fs.readdirSync(abs, { withFileTypes: true });
+      entries = fs.readdirSync(abs, { withFileTypes: true }).filter((ent) => !ignored.has(`${sub}${ent.name}`) && !ignored.has(`${sub}${ent.name}/`));
     } catch (err) {
       errors.push(`${rel}/ cannot be read: ${err.message}`);
       return;
@@ -1142,7 +1194,7 @@ export function checkSpecsTree(dirArg, label = 'specs') {
         // judged above, whatever kind of entry it is
       } else if (ent.isDirectory()) {
         if (!SPEC_DIR_NAME.test(ent.name)) errors.push(`${childRel}/ is not a lowercase kebab-case name`);
-        visit(path.join(abs, ent.name), childRel, depth + 1);
+        visit(path.join(abs, ent.name), childRel, depth + 1, `${sub}${ent.name}/`);
       } else if (!ent.isFile()) {
         // A pipe, socket or device beside a spec is never a document, and reading one can hang.
         errors.push(`${childRel} is not a regular file`);
@@ -1243,7 +1295,8 @@ function checkImports(root) {
       }
     }
   }
-  const pkg = read(root, 'package.json');
+  // package.json is forbidden from declaring dependencies, so it is judged even when git ignores it.
+  const pkg = read(root, 'package.json', { evenIfIgnored: true });
   if (pkg !== null) {
     try {
       const json = JSON.parse(pkg);
@@ -1279,20 +1332,30 @@ function sliceOne(root, r) {
 
   const all = walk(root);
   // A spec directory may be named for its subject, so documents under specs/ are exempt: nothing
-  // there is ever installed or read as a playbook.
+  // there is ever installed or read as a playbook. Custom top-level directories are not judged.
   const strayPlaybooks = all
     .filter(({ path: p, ent }) => ent.isDirectory() && ent.name === 'playbooks' && p !== 'skills/rc-router/playbooks' && !p.startsWith('specs/'))
     .map(({ path: p }) => `${p} (playbooks live only under skills/rc-router/playbooks/)`);
-  r.check('S1 no playbooks directory outside skills/rc-router/', strayPlaybooks);
+  r.check('S1 no playbooks directory in the owned tree outside skills/rc-router/', strayPlaybooks);
 
-  const stray = (listDir(root, '') ?? [])
-    .map((ent) => ent.name)
-    .filter((name) => name !== '.git' && !TOP_LEVEL_ENTRIES.includes(name))
-    .map((name) => `${name} is not part of the system spec's tree`);
-  r.check("S1 the repository root holds only entries of the system spec's tree", stray);
+  // The root is open, so these names are looked up directly: being ignored by git does not excuse them.
+  let rootNames = [];
+  try {
+    rootNames = fs.readdirSync(root);
+  } catch {
+    // an unreadable root is reported by the required-file checks above
+  }
+  const forbidden = Object.entries(FORBIDDEN_ROOT_ENTRIES)
+    .filter(([name]) => rootNames.includes(name))
+    .map(([name, why]) => `${name} must not exist at the repository root (${why})`);
+  r.check('S1 the repository root holds no forbidden entry (custom top-level entries are allowed)', forbidden);
   if (lstat(path.join(root, 'docs'))) r.check('S1 docs/ holds exactly decisions.md', exactEntries(root, 'docs', ['decisions.md'], 'file'));
   if (lstat(path.join(root, 'specs'))) {
-    r.check('S1 specs/ holds feature-local specs: every directory has a spec.md, so a sub-spec sits inside its parent', checkSpecsTree(path.join(root, 'specs')));
+    const ignoredSpecs = new Set([...(IGNORED.get(root) ?? [])].filter((p) => p.startsWith('specs/')).map((p) => p.slice('specs/'.length)));
+    r.check(
+      'S1 specs/ holds feature-local specs: every directory has a spec.md, so a sub-spec sits inside its parent',
+      checkSpecsTree(path.join(root, 'specs'), 'specs', { ignored: ignoredSpecs }),
+    );
   }
 
   const skillErrors = [];
@@ -1305,7 +1368,7 @@ function sliceOne(root, r) {
   r.check('S1 skills/ holds only approved top-level skills', skillErrors);
 
   r.check(
-    'S1 no symbolic links in the source tree',
+    'S1 no symbolic links in the owned source tree',
     all.filter(({ ent }) => ent.isSymbolicLink()).map(({ path: p }) => `${p} is a symbolic link`),
   );
 
@@ -1682,9 +1745,23 @@ function sliceThree(root, r, { profiles, modelNames }) {
 // Entry points
 // ------------------------------------------------------------------------------------------
 
-/** Run every check up to `slice` against the repository at `root`. */
-export function runVerify({ root, slice = 3 }) {
+/**
+ * Run every check up to `slice` against the repository at `root`. Paths that git ignores are
+ * skipped unless `includeIgnored` is set; the installer sets it, because it copies whole
+ * directories and so must have every file in them judged.
+ */
+export function runVerify({ root, slice = 3, includeIgnored = false }) {
   const r = new Report();
+  if (includeIgnored) IGNORED.delete(root);
+  else IGNORED.set(root, gitIgnoredPaths(root));
+  try {
+    return runSlices(root, slice, r);
+  } finally {
+    IGNORED.delete(root);
+  }
+}
+
+function runSlices(root, slice, r) {
   const guarded = (label, fn) => {
     try {
       return fn();
@@ -1725,9 +1802,12 @@ export function runProfileCheck({ profilePath, schemaPath }) {
 }
 
 /** Validate one feature-local specs tree (used by rc-init and rc-doctor on a target repository). */
-export function runSpecsCheck({ specsPath, label }) {
+export function runSpecsCheck({ specsPath, label, includeIgnored = false }) {
   const r = new Report();
-  r.check(`${label} follows the feature-local spec layout`, checkSpecsTree(specsPath, label));
+  // Git is only pointed at a real directory: through a link it would read another repository.
+  const real = typeof specsPath === 'string' && specsPath !== '' && lstat(path.resolve(specsPath))?.isDirectory();
+  const ignored = includeIgnored || !real ? new Set() : gitIgnoredPaths(path.resolve(specsPath));
+  r.check(`${label} follows the feature-local spec layout`, checkSpecsTree(specsPath, label, { ignored }));
   return r;
 }
 
@@ -1745,20 +1825,21 @@ function printReport(r, { quiet, label }) {
 }
 
 const USAGE = `Usage:
-  node scripts/verify.mjs [--slice=1|2|3] [--root <dir>] [--quiet]
+  node scripts/verify.mjs [--slice=1|2|3] [--root <dir>] [--include-ignored] [--quiet]
   node scripts/verify.mjs --profile <file.yaml> [--schema <schema.json>] [--quiet]
-  node scripts/verify.mjs --specs <dir> [--quiet]
+  node scripts/verify.mjs --specs <dir> [--include-ignored] [--quiet]
 
   --slice=N   1 = foundation; 2 = + profiles, contracts, rules, rc-router, playbooks; 3 = everything (default)
   --root      repository to validate (default: the checkout containing this script)
   --profile   validate a single profile file instead of the repository
   --schema    profile schema for --profile (default: profiles/schema.json or defaults/profiles/schema.json)
   --specs     validate one feature-local specs directory (any repository) instead of this repository
+  --include-ignored  also judge paths that git ignores (default: untracked ignored paths are skipped)
   --quiet     print only failures and the summary line
 Exit status: 0 on a full pass, 1 on any failure or usage error.`;
 
 export function main(argv) {
-  const opts = { slice: null, quiet: false, root: null, profile: null, schema: null, specs: null };
+  const opts = { slice: null, quiet: false, includeIgnored: false, root: null, profile: null, schema: null, specs: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const eq = arg.indexOf('=');
@@ -1770,11 +1851,12 @@ export function main(argv) {
       return argv[i];
     };
     try {
-      if ((flag === '--help' || flag === '--quiet') && eq !== -1) throw new Error(`${flag} takes no value`);
+      if ((flag === '--help' || flag === '--quiet' || flag === '--include-ignored') && eq !== -1) throw new Error(`${flag} takes no value`);
       if (flag === '--help' || flag === '-h') {
         console.log(USAGE);
         return 0;
       } else if (flag === '--quiet') opts.quiet = true;
+      else if (flag === '--include-ignored') opts.includeIgnored = true;
       else if (flag === '--slice') opts.slice = value();
       else if (flag === '--root') opts.root = value();
       else if (flag === '--profile') opts.profile = value();
@@ -1794,8 +1876,8 @@ export function main(argv) {
     console.error(`verify: --specs cannot be combined with --slice, --root, --profile or --schema\n${USAGE}`);
     return 1;
   }
-  if (opts.profile !== null && opts.slice !== null) {
-    console.error(`verify: --profile cannot be combined with --slice\n${USAGE}`);
+  if (opts.profile !== null && (opts.slice !== null || opts.includeIgnored)) {
+    console.error(`verify: --profile cannot be combined with --slice or --include-ignored\n${USAGE}`);
     return 1;
   }
   if (opts.specs !== null) {
@@ -1804,7 +1886,7 @@ export function main(argv) {
       return 1;
     }
     const label = opts.specs.replace(/\/+$/, '') || '/';
-    const r = runSpecsCheck({ specsPath: path.resolve(opts.specs), label });
+    const r = runSpecsCheck({ specsPath: path.resolve(opts.specs), label, includeIgnored: opts.includeIgnored });
     printReport(r, { quiet: opts.quiet, label: 'verify --specs' });
     return r.ok ? 0 : 1;
   }
@@ -1831,7 +1913,7 @@ export function main(argv) {
     return 1;
   }
   const slice = Number(opts.slice ?? 3);
-  const r = runVerify({ root, slice });
+  const r = runVerify({ root, slice, includeIgnored: opts.includeIgnored });
   printReport(r, { quiet: opts.quiet, label: `verify --slice=${slice}` });
   return r.ok ? 0 : 1;
 }
