@@ -293,7 +293,7 @@ JSON Schema (Draft 2020-12) constraining:
 ### 3.4 Risk Tiers (`0`–`3`) × Deterministic Assurance Ladder (`A0`–`A3`)
 Assurance is **mechanically derived from evidence**, never LLM self-rated confidence:
 - **`A0` (Speculative — Tier 0 floor):** Reasoning/lookup only; no deterministic check ran.
-- **`A1` (Mechanical — Tier 1 floor):** Format + lint + static/type checks pass (exit `0`).
+- **`A1` (Mechanical — default Tier 1 floor, with the Socratic exception in section 2.4):** Format + lint + static/type checks pass (exit `0`).
 - **`A2` (Behavioral — Tier 2 floor):** `A1` + automated unit/integration tests covering changed paths pass + independent audit with `0` open `Blocker`s.
 - **`A3` (Hardened — Tier 3 floor):** `A2` + targeted edge-case/security/runtime proof + independent cross-family adversarial audit with `0` open `Blocker`s or `Major`s.
 

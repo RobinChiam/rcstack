@@ -126,7 +126,8 @@ Assurance is computed from evidence by `scripts/rc-receipt.mjs`. Nobody rates th
 | `A2` Behavioral | `A1` plus tests on the changed paths | `behavioral` passed and an independent audit has 0 open Blockers |
 | `A3` Hardened | `A2` plus edge-case, security, or runtime proof | `hardened` passed and a cross-family audit has 0 open Blockers or Majors |
 
-Tier `N` requires at least `A<N>`. Work that cannot reach its floor ships only under an explicit
+Tier `N` normally requires at least `A<N>`. The Socratic session uses its listed A0 floor at Tier 1.
+Work that cannot reach its floor ships only under an explicit
 `ASSURANCE GAP` banner on the Review Map, and the gap is logged.
 
 ## Default model stack
