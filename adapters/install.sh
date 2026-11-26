@@ -1,31 +1,37 @@
 #!/usr/bin/env bash
 # adapters/install.sh — atomic promoter into ~/.rcstack/dist/ + harness symlinker.
 #
-#   bash adapters/install.sh [--from-local] [--dry-run] [--home <dir>] [--rcstack-home <dir>]
+#   bash adapters/install.sh [--from-local | --from-release --release-commit <sha>] [--dry-run] [--home <dir>] [--rcstack-home <dir>]
 #
-# Promotes this checkout into <rcstack-home>/dist, seeds <rcstack-home>/profiles (never overwriting
-# an existing profile), initializes the <rcstack-home>/runtime shadow git repository, and symlinks
-# the 5 top-level skills from <rcstack-home>/dist/skills/<skill> into each harness directory under
-# <home>. Harness links never point into this checkout.
+# Promotes this checkout (or a verified unpacked release archive) into <rcstack-home>/dist,
+# seeds <rcstack-home>/profiles/rcstack-main.yaml on a fresh install (preserving existing
+# machine-local consolidated or legacy profiles without shadowing them), initializes the
+# <rcstack-home>/runtime shadow git repository, and symlinks the 5 top-level skills from
+# <rcstack-home>/dist/skills/<skill> into each harness directory under <home>. Harness links
+# never point into this checkout.
 #
 # Idempotent. Refuses to overwrite any non-symlink destination, and checks for that before it
 # changes anything. --dry-run prints the plan and mutates nothing.
 set -euo pipefail
 
-RCSTACK_VERSION="0.2.0"
+RCSTACK_VERSION="0.2.1"
 SKILLS="rc-router rc-setup rc-init rc-doctor rc-retro"
 HARNESSES=".agents .claude .codex .gemini .cursor"
 STAGED_DIRS="rules profiles contracts scripts skills"
+MAIN_PROFILE="rcstack-main.yaml"
+LEGACY_PROFILES="rcstack-engineering.yaml rcstack-study.yaml rcstack-research.yaml"
 
 usage() {
   cat <<'USAGE'
-Usage: bash adapters/install.sh [--from-local] [--dry-run] [--home <dir>] [--rcstack-home <dir>]
+Usage: bash adapters/install.sh [--from-local | --from-release --release-commit <sha>] [--dry-run] [--home <dir>] [--rcstack-home <dir>]
 
-  --from-local         promote this checkout (default, and the only source in this version)
-  --dry-run            print the plan; create, change, and delete nothing
-  --home <dir>         home directory holding the harness skill directories (default: $HOME)
-  --rcstack-home <dir> installed runtime home (default: <home>/.rcstack)
-  -h, --help           show this help
+  --from-local              promote this checkout (default)
+  --from-release            promote a verified unpacked release source (requires --release-commit)
+  --release-commit <sha>    40-character lowercase hex commit SHA for --from-release metadata
+  --dry-run                 print the plan; create, change, and delete nothing
+  --home <dir>              home directory holding the harness skill directories (default: $HOME)
+  --rcstack-home <dir>      installed runtime home (default: <home>/.rcstack)
+  -h, --help                show this help
 USAGE
 }
 
@@ -37,11 +43,21 @@ die() {
 
 # ---------------------------------------------------------------------------- arguments
 DRY_RUN=0
+FROM_LOCAL=0
+FROM_RELEASE=0
+RELEASE_COMMIT=""
 HOME_DIR="${HOME:-}"
 RC_HOME=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --from-local) ;;
+    --from-local) FROM_LOCAL=1 ;;
+    --from-release) FROM_RELEASE=1 ;;
+    --release-commit)
+      [ "$#" -ge 2 ] || die "--release-commit needs a 40-character commit SHA"
+      RELEASE_COMMIT="$2"
+      shift
+      ;;
+    --release-commit=*) RELEASE_COMMIT="${1#*=}" ;;
     --dry-run) DRY_RUN=1 ;;
     --home)
       [ "$#" -ge 2 ] || die "--home needs a directory"
@@ -66,6 +82,16 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+if [ "$FROM_LOCAL" -eq 1 ] && [ "$FROM_RELEASE" -eq 1 ]; then
+  die "--from-local and --from-release cannot be combined"
+fi
+if [ "$FROM_RELEASE" -eq 1 ]; then
+  [ -n "$RELEASE_COMMIT" ] || die "--from-release requires --release-commit <40-hex-sha>"
+  [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "--release-commit must be a 40-character lowercase hex SHA"
+elif [ -n "$RELEASE_COMMIT" ]; then
+  die "--release-commit requires --from-release"
+fi
 
 absolute() {
   case "$1" in
@@ -135,6 +161,8 @@ node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 20 ? 0 : 1)
 for dir in $STAGED_DIRS; do
   [ -d "$SRC/$dir" ] || die "source checkout is missing $dir/"
 done
+[ -f "$SRC/profiles/schema.json" ] || die "source checkout is missing profiles/schema.json"
+[ -f "$SRC/profiles/$MAIN_PROFILE" ] || die "source checkout is missing profiles/$MAIN_PROFILE"
 for skill in $SKILLS; do
   [ -f "$SRC/skills/$skill/SKILL.md" ] || die "source checkout is missing skills/$skill/SKILL.md"
 done
@@ -184,11 +212,18 @@ done
 [ "$collisions" -eq 0 ] ||
   die "refusing to overwrite $collisions conflicting destination(s); move them aside and re-run. Nothing was changed"
 
-commit_sha="$(git -C "$SRC" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
-[ -n "$commit_sha" ] || commit_sha="unknown"
-dirty="false"
-# --no-optional-locks: reading the status must not refresh (write) the source checkout's index.
-if [ -n "$(git -C "$SRC" --no-optional-locks status --porcelain --untracked-files=normal 2>/dev/null || true)" ]; then dirty="true"; fi
+if [ "$FROM_RELEASE" -eq 1 ]; then
+  meta_source="release"
+  commit_sha="$RELEASE_COMMIT"
+  dirty="false"
+else
+  meta_source="local"
+  commit_sha="$(git -C "$SRC" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
+  [ -n "$commit_sha" ] || commit_sha="unknown"
+  dirty="false"
+  # --no-optional-locks: reading the status must not refresh (write) the source checkout's index.
+  if [ -n "$(git -C "$SRC" --no-optional-locks status --porcelain --untracked-files=normal 2>/dev/null || true)" ]; then dirty="true"; fi
+fi
 
 # ---------------------------------------------------------------------------- plan
 if [ "$DRY_RUN" -eq 1 ]; then
@@ -200,7 +235,11 @@ else
 fi
 
 say "rcstack-beta $RCSTACK_VERSION installer"
-say "  source:        $SRC (commit $commit_sha, uncommitted changes: $dirty)"
+if [ "$meta_source" = "release" ]; then
+  say "  source:        release ($SRC, commit $commit_sha)"
+else
+  say "  source:        $SRC (commit $commit_sha, uncommitted changes: $dirty)"
+fi
 say "  rcstack home:  $RC_HOME"
 say "  harness home:  $HOME_DIR"
 say "  mode:          $MODE"
@@ -249,6 +288,7 @@ if [ "$DRY_RUN" -eq 0 ]; then
     [ -f "$STAGE/skills/$skill/SKILL.md" ] || die "staging is incomplete: skills/$skill/SKILL.md"
   done
   [ -f "$STAGE/defaults/profiles/schema.json" ] || die "staging is incomplete: defaults/profiles/schema.json"
+  [ -f "$STAGE/defaults/profiles/$MAIN_PROFILE" ] || die "staging is incomplete: defaults/profiles/$MAIN_PROFILE"
   [ -z "$(find "$STAGE" -type l -print)" ] || die "staging contains a symbolic link"
 
   # dist is read-only: nothing edits installed skills through a harness symlink.
@@ -278,29 +318,36 @@ if [ "$DRY_RUN" -eq 0 ]; then
 fi
 
 # ---------------------------------------------------------------------------- 3. install-meta.json
-say "$DO write $RC_HOME/install-meta.json (version $RCSTACK_VERSION, source local)"
+say "$DO write $RC_HOME/install-meta.json (version $RCSTACK_VERSION, source $meta_source)"
 if [ "$DRY_RUN" -eq 0 ]; then
   meta_tmp="$RC_HOME/.install-meta.json.$$"
-  printf '{\n  "version": "%s",\n  "commit_sha": "%s",\n  "source": "local",\n  "dirty": %s,\n  "installed_at": "%s"\n}\n' \
-    "$RCSTACK_VERSION" "$commit_sha" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$meta_tmp"
+  printf '{\n  "version": "%s",\n  "commit_sha": "%s",\n  "source": "%s",\n  "dirty": %s,\n  "installed_at": "%s"\n}\n' \
+    "$RCSTACK_VERSION" "$commit_sha" "$meta_source" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$meta_tmp"
   mv "$meta_tmp" "$RC_HOME/install-meta.json"
 fi
 
 # ---------------------------------------------------------------------------- 4. profiles
 if [ "$DRY_RUN" -eq 0 ]; then mkdir -p "$RC_HOME/profiles"; fi
-for template in "$SRC"/profiles/rcstack-*.yaml; do
-  name="$(basename "$template")"
-  dest="$RC_HOME/profiles/$name"
-  if [ -e "$dest" ] || [ -L "$dest" ]; then
-    say "$DO keep $dest (machine-local profiles are never overwritten)"
-  else
-    say "$DO seed $dest"
-    if [ "$DRY_RUN" -eq 0 ]; then
-      cp "$DIST/defaults/profiles/$name" "$dest"
-      chmod u+w "$dest"
-    fi
+main_dest="$RC_HOME/profiles/$MAIN_PROFILE"
+has_legacy=0
+for legacy in $LEGACY_PROFILES; do
+  legacy_dest="$RC_HOME/profiles/$legacy"
+  if present "$legacy_dest"; then
+    has_legacy=1
+    say "$DO keep $legacy_dest (machine-local profiles are never overwritten)"
   fi
 done
+if present "$main_dest"; then
+  say "$DO keep $main_dest (machine-local profiles are never overwritten)"
+elif [ "$has_legacy" -eq 1 ]; then
+  say "$DO skip seeding $main_dest (existing legacy profile(s) preserved)"
+else
+  say "$DO seed $main_dest"
+  if [ "$DRY_RUN" -eq 0 ]; then
+    cp "$DIST/defaults/profiles/$MAIN_PROFILE" "$main_dest"
+    chmod u+w "$main_dest"
+  fi
+fi
 
 # ---------------------------------------------------------------------------- 5. runtime shadow git
 if [ -e "$RC_HOME/runtime/.git" ]; then

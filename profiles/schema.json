@@ -111,6 +111,335 @@
     }
   },
   "$defs": {
+    "alias": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "alias_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary"
+      ],
+      "properties": {
+        "primary": {
+          "$ref": "#/$defs/alias"
+        },
+        "secondary": {
+          "$ref": "#/$defs/alias"
+        },
+        "fallback": {
+          "$ref": "#/$defs/alias"
+        },
+        "paired": {
+          "$ref": "#/$defs/alias"
+        },
+        "companion": {
+          "$ref": "#/$defs/alias"
+        },
+        "exclusive": {
+          "type": "boolean"
+        }
+      }
+    },
+    "alias_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary"
+      ],
+      "properties": {
+        "primary": {
+          "$ref": "#/$defs/alias"
+        },
+        "tier1_primary": {
+          "$ref": "#/$defs/alias"
+        },
+        "fallback": {
+          "$ref": "#/$defs/alias"
+        }
+      }
+    },
+    "main_domain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile_id",
+        "description",
+        "capabilities",
+        "default_capabilities"
+      ],
+      "properties": {
+        "profile_id": {
+          "enum": [
+            "rcstack-engineering",
+            "rcstack-study",
+            "rcstack-research"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "systems_research": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "architect_blueprint": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "primary_builder": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "security_builder": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "vibe_executor": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "deep_grounding": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "quick_lookup": {
+              "$ref": "#/$defs/alias_binding"
+            }
+          }
+        },
+        "default_capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "properties": {
+            "0": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/capability"
+              }
+            },
+            "1": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/capability"
+              }
+            },
+            "2": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/capability"
+              }
+            },
+            "3": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/capability"
+              }
+            }
+          }
+        }
+      }
+    },
+    "main_tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "required_assurance",
+        "require_spec",
+        "require_state_file",
+        "require_verify",
+        "require_receipt_gate",
+        "require_cross_model_audit",
+        "require_review_map",
+        "log_telemetry"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "required_assurance": {
+          "enum": [
+            "A0",
+            "A1",
+            "A2",
+            "A3"
+          ]
+        },
+        "require_spec": {
+          "type": "boolean"
+        },
+        "require_state_file": {
+          "type": "boolean"
+        },
+        "require_verify": {
+          "type": "boolean"
+        },
+        "require_receipt_gate": {
+          "type": "boolean"
+        },
+        "require_cross_model_audit": {
+          "type": "boolean"
+        },
+        "require_review_map": {
+          "type": "boolean"
+        },
+        "log_telemetry": {
+          "type": "boolean"
+        }
+      }
+    },
+    "main_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "profile",
+        "models",
+        "invariants",
+        "tier3_path_patterns",
+        "capabilities",
+        "domains",
+        "review_matrix",
+        "risk_tiers"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "2.0"
+        },
+        "profile": {
+          "const": "rcstack-main"
+        },
+        "models": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/alias"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/model_ref"
+          }
+        },
+        "invariants": {
+          "$ref": "#/properties/invariants"
+        },
+        "tier3_path_patterns": {
+          "$ref": "#/properties/tier3_path_patterns"
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "systems_research",
+            "architect_blueprint",
+            "primary_builder",
+            "security_builder",
+            "vibe_executor",
+            "deep_grounding",
+            "quick_lookup"
+          ],
+          "properties": {
+            "systems_research": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "architect_blueprint": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "primary_builder": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "security_builder": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "vibe_executor": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "deep_grounding": {
+              "$ref": "#/$defs/alias_binding"
+            },
+            "quick_lookup": {
+              "$ref": "#/$defs/alias_binding"
+            }
+          }
+        },
+        "domains": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "engineering",
+            "study",
+            "research"
+          ],
+          "properties": {
+            "engineering": {
+              "$ref": "#/$defs/main_domain"
+            },
+            "study": {
+              "$ref": "#/$defs/main_domain"
+            },
+            "research": {
+              "$ref": "#/$defs/main_domain"
+            }
+          }
+        },
+        "review_matrix": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/alias"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/alias_review"
+          },
+          "properties": {
+            "default_fallback": {
+              "$ref": "#/$defs/alias"
+            }
+          },
+          "required": [
+            "default_fallback"
+          ]
+        },
+        "risk_tiers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "0",
+            "1",
+            "2",
+            "3"
+          ],
+          "properties": {
+            "0": {
+              "$ref": "#/$defs/main_tier"
+            },
+            "1": {
+              "$ref": "#/$defs/main_tier"
+            },
+            "2": {
+              "$ref": "#/$defs/main_tier"
+            },
+            "3": {
+              "$ref": "#/$defs/main_tier"
+            }
+          }
+        }
+      }
+    },
     "model_name": {
       "description": "A concrete model or tool name as shown to humans: single line, no leading or trailing whitespace. rc-router maps it to a live catalog id at dispatch time.",
       "type": "string",

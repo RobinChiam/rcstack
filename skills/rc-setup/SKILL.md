@@ -39,9 +39,12 @@ Prove that this machine can run rcstack as its profiles describe: every primary/
    `node ~/.rcstack/dist/scripts/verify.mjs --profile <file>`. It checks the strict YAML subset,
    the schema, review-matrix coverage, and `reviewer != builder`. A failing profile is reported
    with the validator's exact message and is not used.
-3. **Show drift from the defaults.** Diff each profile against
-   `~/.rcstack/dist/defaults/profiles/<profile>.yaml`. Report the differences; never overwrite a
-   machine-local profile.
+3. **Show drift from the defaults.** Run `verify.mjs --profile <file> --domain <domain>` to
+   get the effective profile for each domain, using the same precedence as `rc-router`.
+   Compare each to the matching projection from
+   `~/.rcstack/dist/defaults/profiles/rcstack-main.yaml`. Report the source and differences
+   for each domain.
+   Leave machine-local profile files intact.
 4. **Discover live models.** In T3 Code, call `orchestrator_capabilities` once per thread (use the
    ACP shell bridge when the orchestration tools are absent). When catalog discovery is unavailable
    (such as in a standalone CLI harness or a failed discovery call), report

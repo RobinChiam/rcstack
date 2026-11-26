@@ -16,6 +16,7 @@ import {
   extractPathRefs,
   parseSections,
   checkProfileText,
+  checkProfileDocument,
   checkSpecsTree,
   checkPlaybookGates,
   isGateExempt,
@@ -519,12 +520,12 @@ describe('repository validation', () => {
     // Shipped socratic-session passes, while enabling another gate on Tier 1 still fails it.
     assert.equal(failures(ROOT, 2), '');
     expectFailure(
-      (root) => edit(root, 'profiles/rcstack-study.yaml', (t) => t.replace(/("1":[\s\S]*?)require_spec: false/, '$1require_spec: true')),
+      (root) => edit(root, 'profiles/rcstack-main.yaml', (t) => t.replace(/(risk_tiers:[\s\S]*?"1":[\s\S]*?)require_spec: false/, '$1require_spec: true')),
       /playbook study\/socratic-session[\s\S]*profile gate require_spec \(Tier 1\): contracts must list contracts\/spec\.md/,
       2,
     );
     expectFailure(
-      (root) => edit(root, 'profiles/rcstack-study.yaml', (t) => t.replace(/("1":[\s\S]*?)log_telemetry: false/, '$1log_telemetry: true')),
+      (root) => edit(root, 'profiles/rcstack-main.yaml', (t) => t.replace(/(risk_tiers:[\s\S]*?"1":[\s\S]*?)log_telemetry: false/, '$1log_telemetry: true')),
       /playbook study\/socratic-session[\s\S]*profile gate log_telemetry \(Tier 1\): the workflow or exit gate must use `rc-log\.mjs`/,
       2,
     );
@@ -604,86 +605,85 @@ describe('repository validation', () => {
     assert.match(otherGates.join('\n'), /profile gate log_telemetry \(Tier 1\)/);
   });
 
-  test('fails when reviewer == builder anywhere in a review matrix', () => {
-    const profile = 'profiles/rcstack-engineering.yaml';
+  test('rejects reviewer overlap in every slot of a consolidated matrix', () => {
+    const profile = 'profiles/rcstack-main.yaml';
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('  "Gemini 4 Neon":\n    primary: "Claude Opus 5.5"', '  "Gemini 4 Neon":\n    primary: "Gemini 4 Neon"')),
+      (root) => edit(root, profile, (t) => t.replace('  neon:\n    primary: "opus"', '  neon:\n    primary: "neon"')),
       /reviewer == builder: review_matrix\["Gemini 4 Neon"\]\.primary/,
       2,
     );
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('  "Claude Opus 5.5":\n    primary: "Gemini 4 Neon"\n    fallback: "Cursor Grok 4.7"', '  "Claude Opus 5.5":\n    primary: "Gemini 4 Neon"\n    fallback: "Claude Opus 5.5"')),
+      (root) => edit(root, profile, (t) => t.replace('  opus:\n    primary: "neon"', '  opus:\n    primary: "neon"\n    fallback: "opus"')),
       /reviewer == builder: review_matrix\["Claude Opus 5.5"\]\.fallback/,
       2,
     );
-    expectFailure((root) => edit(root, profile, (t) => t.replace('tier1_primary: "Gemini 4 Neon"', 'tier1_primary: "GPT 6.2 Sol"')), /reviewer == builder: review_matrix\["GPT 6.2 Sol"\]\.tier1_primary/, 2);
-    expectFailure((root) => edit(root, profile, (t) => t.replace('default_fallback: "Cursor Grok 4.7"', 'default_fallback: "Gemini 4 Neon"')), /default_fallback "Gemini 4 Neon" is also a builder model/, 2);
+    expectFailure((root) => edit(root, profile, (t) => t.replace('tier1_primary: "neon"', 'tier1_primary: "sol"')), /reviewer == builder: review_matrix\["GPT 6.2 Sol"\]\.tier1_primary/, 2);
+    expectFailure((root) => edit(root, profile, (t) => t.replace('default_fallback: "grok"', 'default_fallback: "neon"')), /default_fallback "Gemini 4 Neon" is also a builder model/, 2);
   });
 
-  test('fails when reviewer == builder is hidden behind a different spelling of the same model', () => {
-    const profile = 'profiles/rcstack-engineering.yaml';
+  test('rejects reviewer overlap behind another alias and catalog spelling', () => {
+    const profile = 'profiles/rcstack-main.yaml';
+    const alias = (text, spelling) => text.replace('\ninvariants:', `\n  alternate:\n    driver_kind: "antigravity"\n    model: "${spelling}"\ninvariants:`);
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('  "Gemini 4 Neon":\n    primary: "Claude Opus 5.5"', '  "Gemini 4 Neon":\n    primary: "gemini-4-neon"')),
+      (root) => edit(root, profile, (t) => alias(t, 'gemini-4-neon').replace('  neon:\n    primary: "opus"', '  neon:\n    primary: "alternate"')),
       /reviewer == builder: review_matrix\["Gemini 4 Neon"\]\.primary/,
       2,
     );
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('  "Gemini 4 Neon":\n    primary: "Claude Opus 5.5"\n    fallback: "Cursor Grok 4.7"', '  "Gemini 4 Neon":\n    primary: "Claude Opus 5.5"\n    fallback: "claude-opus-5-5"')),
+      (root) => edit(root, profile, (t) => alias(t, 'claude-opus-5-5').replace('  neon:\n    primary: "opus"', '  neon:\n    primary: "opus"\n    fallback: "alternate"')),
       /review_matrix\["Gemini 4 Neon"\]: primary and fallback reviewer are the same model/,
       2,
     );
-    expectFailure((root) => edit(root, profile, (t) => t.replace('default_fallback: "Cursor Grok 4.7"', 'default_fallback: "gemini_4_neon"')), /default_fallback "gemini_4_neon" is also a builder model/, 2);
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('  "Claude Sonnet 5.5":\n    primary: "Gemini 4 Neon"\n    fallback: "Cursor Grok 4.7"', '  "Claude Sonnet 5.5":\n    primary: "Gemini 4 Neon"\n    fallback: "Cursor Grok 4.7"\n  "claude-sonnet-5-5":\n    primary: "Claude Sonnet 5.5"\n    fallback: "Cursor Grok 4.7"')),
-      /lists the same builder model twice: "Claude Sonnet 5\.5" and "claude-sonnet-5-5"/,
+      (root) => edit(root, profile, (t) => alias(t, 'gemini-4-neon').replace('\nrisk_tiers:', '\n  alternate:\n    primary: "opus"\nrisk_tiers:')),
+      /lists the same builder model twice/,
       2,
     );
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('    paired:\n      driver_kind: "codex"\n      model: "GPT 6.2 Astra"', '    paired:\n      driver_kind: "codex"\n      model: "gemini-4-hydrogen"')),
-      /quick_lookup is exclusive but "Gemini 4 Hydrogen" is also bound/,
+      (root) => edit(root, profile, (t) => alias(t, 'claude-5-5-opus').replace('  opus:\n    primary: "neon"', '  opus:\n    primary: "alternate"')),
+      /reviewer == builder: review_matrix\["Claude Opus 5.5"\]\.primary/,
       2,
     );
-    expectFailure((root) => edit(root, profile, (t) => t.replace('tier1_primary: "Gemini 4 Neon"', 'tier1_primary: "gpt-6.2-sol"')), /reviewer == builder: review_matrix\["GPT 6\.2 Sol"\]\.tier1_primary/, 2);
-    // A catalog id that puts the version before the model name is still the same model.
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('  "Claude Opus 5.5":\n    primary: "Gemini 4 Neon"', '  "Claude Opus 5.5":\n    primary: "claude-5-5-opus"')),
-      /reviewer == builder: review_matrix\["Claude Opus 5\.5"\]\.primary/,
+      (root) => edit(root, profile, (t) => alias(t, 'gpt-astra-6.2').replace('default_fallback: "grok"', 'default_fallback: "alternate"')),
+      /default_fallback "gpt-astra-6\.2" is also a builder model/,
       2,
     );
-    expectFailure((root) => edit(root, profile, (t) => t.replace('default_fallback: "Cursor Grok 4.7"', 'default_fallback: "gpt-astra-6.2"')), /default_fallback "gpt-astra-6\.2" is also a builder model/, 2);
-    // A binding spelled as a catalog id is still covered by, and judged against, its matrix entry.
     const root = copyRepo();
-    edit(root, profile, (t) => t.replace('    model: "Claude Fable 5.2"\n    secondary:', '    model: "claude-fable-5-2"\n    secondary:'));
+    edit(root, profile, (t) => alias(t, 'claude-fable-5-2').replace('primary: "fable"', 'primary: "alternate"'));
     assert.equal(failures(root, 2), '');
   });
 
   test('fails when a builder model has no reviewer entry, or self-review is switched on', () => {
-    const profile = 'profiles/rcstack-study.yaml';
-    expectFailure((root) => edit(root, profile, (t) => t.replace(/  "Claude Sonnet 5\.5":\n    primary: "[^"]+"\n    fallback: "[^"]+"\n/, '')), /no entry for builder model "Claude Sonnet 5\.5"/, 2);
+    const profile = 'profiles/rcstack-main.yaml';
+    expectFailure((root) => edit(root, profile, (t) => t.replace('  sonnet:\n    primary: "neon"\n', '')), /no entry for builder model "Claude Sonnet 5.5"/, 2);
     expectFailure((root) => edit(root, profile, (t) => t.replace('allow_self_review_on_fallback: false', 'allow_self_review_on_fallback: true')), /allow_self_review_on_fallback: must equal false/, 2);
     expectFailure((root) => edit(root, profile, (t) => t.replace('require_reviewer_not_equal_builder: true', 'require_reviewer_not_equal_builder: false')), /require_reviewer_not_equal_builder: must equal true/, 2);
   });
 
   test('fails on a profile that breaks the strict YAML subset, the schema, or portability', () => {
-    const profile = 'profiles/rcstack-research.yaml';
+    const profile = 'profiles/rcstack-main.yaml';
     expectFailure((root) => edit(root, profile, (t) => t.replace('  require_fresh_context_audit', '\trequire_fresh_context_audit')), /tab characters are not allowed/, 2);
     expectFailure((root) => edit(root, profile, (t) => t.replace('    name: "lookup"', '     name: "lookup"')), /not a multiple of 2/, 2);
     expectFailure((root) => edit(root, profile, (t) => t.replace('required_assurance: "A2"', 'required_assurance: "A1"')), /risk_tiers\.2\.required_assurance: must equal "A2"/, 2);
-    expectFailure((root) => edit(root, profile, (t) => t.replace(/("2":[\s\S]*?)require_receipt_gate: true/, '$1require_receipt_gate: false')), /risk_tiers\["2"\]\.require_receipt_gate must be true/, 2);
+    expectFailure((root) => edit(root, profile, (t) => t.replace(/(risk_tiers:[\s\S]*?"2":[\s\S]*?)require_receipt_gate: true/, '$1require_receipt_gate: false')), /risk_tiers\["2"\]\.require_receipt_gate must be true/, 2);
     expectFailure(
-      (root) => edit(root, profile, (t) => t.replace('    driver_kind: "claudeAgent"\n    model: "Claude Fable 5.2"', '    driver_kind: "claudeAgent"\n    model: "Claude Fable 5.2"\n    options:\n      session: "3f2a9c1e-5b7d-4e8a-9c1f-0a2b3c4d5e6f"')),
+      (root) => edit(root, profile, (t) => t.replace('    model: "Claude Fable 5.2"', '    model: "Claude Fable 5.2"\n    options:\n      session: "3f2a9c1e-5b7d-4e8a-9c1f-0a2b3c4d5e6f"')),
       /machine-specific UUIDs are not portable/,
       2,
     );
-    expectFailure((root) => edit(root, profile, (t) => t.replace('    exclusive: true', '    exclusive: true\n  extra_capability:\n    driver_kind: "x"\n    model: "Y"')), /capabilities\.extra_capability: unknown property/, 2);
+    expectFailure((root) => edit(root, profile, (t) => t.replace('    exclusive: true', '    exclusive: true\n  extra_capability:\n    primary: astra')), /capabilities\.extra_capability: unknown property/, 2);
+    expectFailure((root) => edit(root, profile, (t) => t.replace('companion: "notebook"', 'companion: "absent"')), /unknown model alias "absent"/, 2);
   });
 
   test('fails when an exclusive model is bound to a second capability', () => {
-    expectFailure(
-      (root) => edit(root, 'profiles/rcstack-study.yaml', (t) => t.replace('      driver_kind: "external"\n      model: "Gemini Notebook"', '      driver_kind: "external"\n      model: "Gemini 4 Hydrogen"')),
-      /quick_lookup is exclusive but "Gemini 4 Hydrogen" is also bound/,
-      2,
-    );
+    for (const binding of ['companion: "notebook"', 'paired: "astra"']) {
+      expectFailure(
+        (root) => edit(root, 'profiles/rcstack-main.yaml', (t) => t.replace(binding, binding.replace(/".*"/, '"hydrogen"'))),
+        /quick_lookup is exclusive but "Gemini 4 Hydrogen" is also bound/,
+        2,
+      );
+    }
   });
 
   test('fails on a skill that breaks the skill contract', () => {
@@ -1067,7 +1067,7 @@ describe('feature-local specs', () => {
     assert.match(report, /S1 required file AGENTS\.md\nmissing/);
     assert.doesNotMatch(report, /leaked-from-outside/);
 
-    for (const rel of ['README.md', 'docs/decisions.md', 'skills/rc-retro/SKILL.md', 'profiles/rcstack-study.yaml', 'contracts/spec.md']) {
+    for (const rel of ['README.md', 'docs/decisions.md', 'skills/rc-retro/SKILL.md', 'profiles/rcstack-main.yaml', 'contracts/spec.md']) {
       const piped = copyRepo();
       fs.rmSync(path.join(piped, rel));
       if (spawnSync('mkfifo', [path.join(piped, rel)]).status !== 0) return t.skip('mkfifo is not available');
@@ -1138,7 +1138,7 @@ describe('feature-local specs', () => {
     const tier3 = copyRepo();
     fs.rmSync(path.join(tier3, 'adapters/install.sh'));
     fs.symlinkSync(path.join(root, 'adapters/install.sh'), path.join(tier3, 'adapters/install.sh'));
-    assert.match(failures(tier3), /profiles\/rcstack-engineering\.yaml tier3_path_patterns names adapters\/install\.sh, which does not exist/);
+    assert.match(failures(tier3), /profiles\/rcstack-main\.yaml \(rcstack-engineering\) tier3_path_patterns names adapters\/install\.sh, which does not exist/);
   });
 
   test('--root may be a link to a checkout, but not a dangling link or a file', () => {
@@ -1185,12 +1185,12 @@ describe('feature-local specs', () => {
     const mixed = cli(ROOT, ['--specs', good, '--root', ROOT]);
     assert.equal(mixed.status, 1);
     assert.match(mixed.stderr, /--specs cannot be combined with --slice, --root, --profile or --schema/);
-    for (const extra of [['--slice=1'], ['--profile', path.join(ROOT, 'profiles/rcstack-study.yaml')], ['--schema', path.join(ROOT, 'profiles/schema.json')]]) {
+    for (const extra of [['--slice=1'], ['--profile', path.join(ROOT, 'profiles/rcstack-main.yaml')], ['--schema', path.join(ROOT, 'profiles/schema.json')]]) {
       const res = cli(ROOT, ['--specs', good, ...extra]);
       assert.equal(res.status, 1, extra.join(' '));
       assert.match(res.stderr, /--specs cannot be combined with/);
     }
-    const sliced = cli(ROOT, ['--profile', path.join(ROOT, 'profiles/rcstack-study.yaml'), '--slice=2']);
+    const sliced = cli(ROOT, ['--profile', path.join(ROOT, 'profiles/rcstack-main.yaml'), '--slice=2']);
     assert.equal(sliced.status, 1);
     assert.match(sliced.stderr, /--profile cannot be combined with --slice/);
     assert.equal(cli(ROOT, ['--specs', `${good}///`, '--quiet']).status, 0, 'trailing slashes on a real directory are fine');
@@ -1367,8 +1367,8 @@ describe('custom top-level paths and git-ignored paths (DEC-015)', () => {
     assert.equal(cli(root, ['--quiet']).status, 0);
     assert.equal(cli(root, ['--include-ignored', '--quiet']).status, 1);
     assert.equal(cli(root, ['--include-ignored=yes']).status, 1, 'the flag takes no value');
-    assert.equal(cli(root, ['--profile', path.join(root, 'profiles/rcstack-study.yaml')]).status, 0);
-    assert.equal(cli(root, ['--profile', path.join(root, 'profiles/rcstack-study.yaml'), '--include-ignored']).status, 1, 'the flag does not apply to --profile');
+    assert.equal(cli(root, ['--profile', path.join(root, 'profiles/rcstack-main.yaml')]).status, 0);
+    assert.equal(cli(root, ['--profile', path.join(root, 'profiles/rcstack-main.yaml'), '--include-ignored']).status, 1, 'the flag does not apply to --profile');
   });
 
   test('listing ignored paths never runs a program named in the repository configuration', () => {
@@ -1480,19 +1480,42 @@ describe('custom top-level paths and git-ignored paths (DEC-015)', () => {
 describe('--profile mode', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(ROOT, 'profiles/schema.json'), 'utf8'));
 
-  test('accepts each shipped profile', () => {
+  test('validates the consolidated file and prints the selected domain', () => {
+    const file = path.join(ROOT, 'profiles/rcstack-main.yaml');
+    assert.equal(cli(ROOT, ['--profile', file]).status, 0);
     for (const domain of ['engineering', 'study', 'research']) {
-      const res = cli(ROOT, ['--profile', path.join(ROOT, `profiles/rcstack-${domain}.yaml`)]);
+      const res = cli(ROOT, ['--profile', file, '--domain', domain]);
       assert.equal(res.status, 0, res.stdout);
+      assert.equal(JSON.parse(res.stdout).profile, `rcstack-${domain}`);
     }
+    assert.equal(cli(ROOT, ['--domain', 'study']).status, 1);
+  });
+
+  test('a legacy profile round trips through the domain selection CLI', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-legacy-'));
+    tmpDirs.push(dir);
+    const main = path.join(ROOT, 'profiles/rcstack-main.yaml');
+    const selected = JSON.parse(cli(ROOT, ['--profile', main, '--domain', 'study']).stdout);
+    const yaml = (values, indent = '') => Object.entries(values).map(([key, value]) => {
+      const name = `${indent}${JSON.stringify(key)}:`;
+      if (Array.isArray(value)) return `${name}\n${value.map((item) => `${indent}  - ${JSON.stringify(item)}`).join('\n')}`;
+      if (value !== null && typeof value === 'object') return `${name}\n${yaml(value, `${indent}  `)}`;
+      return `${name} ${JSON.stringify(value)}`;
+    }).join('\n');
+    const file = path.join(dir, 'rcstack-study.yaml');
+    fs.writeFileSync(file, yaml(selected) + '\n');
+    const legacy = cli(ROOT, ['--profile', file, '--domain', 'study']);
+    assert.equal(legacy.status, 0, legacy.stderr);
+    assert.deepEqual(JSON.parse(legacy.stdout), selected);
+    assert.equal(cli(ROOT, ['--profile', file, '--domain', 'research']).status, 1);
   });
 
   test('rejects a machine-local profile that permits self-review', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-profile-'));
     tmpDirs.push(dir);
     const file = path.join(dir, 'rcstack-engineering.yaml');
-    const text = fs.readFileSync(path.join(ROOT, 'profiles/rcstack-engineering.yaml'), 'utf8');
-    fs.writeFileSync(file, text.replace('  "GPT 6.2 Astra":\n    primary: "Claude Opus 5.5"', '  "GPT 6.2 Astra":\n    primary: "GPT 6.2 Astra"'));
+    const text = fs.readFileSync(path.join(ROOT, 'profiles/rcstack-main.yaml'), 'utf8');
+    fs.writeFileSync(file, text.replace('  astra:\n    primary: "opus"', '  astra:\n    primary: "astra"'));
     const res = cli(ROOT, ['--profile', file]);
     assert.equal(res.status, 1);
     assert.match(res.stdout, /reviewer == builder: review_matrix\["GPT 6\.2 Astra"\]\.primary/);
@@ -1507,9 +1530,11 @@ describe('--profile mode', () => {
 describe('shipped profiles match the system spec, section 3.3', () => {
   const spec = fs.readFileSync(path.join(ROOT, SYSTEM_SPEC), 'utf8');
   const section = spec.slice(spec.indexOf('### 3.3'), spec.indexOf('### 3.4'));
-  const profiles = Object.fromEntries(
-    ['engineering', 'study', 'research'].map((d) => [d, parseYaml(fs.readFileSync(path.join(ROOT, `profiles/rcstack-${d}.yaml`), 'utf8'))]),
-  );
+  const schema = JSON.parse(fs.readFileSync(path.join(ROOT, 'profiles/schema.json'), 'utf8'));
+  const text = fs.readFileSync(path.join(ROOT, 'profiles/rcstack-main.yaml'), 'utf8');
+  const result = checkProfileDocument(text, schema);
+  assert.deepEqual(result.errors, []);
+  const profiles = Object.fromEntries(Object.values(result.profiles).map((p) => [p.domain, p]));
   const pick = (cell, label) => new RegExp(`${label}: \`([^\`]+)\``).exec(cell)?.[1];
 
   test('every capability binding equals the specification table', () => {

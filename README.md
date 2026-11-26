@@ -8,7 +8,7 @@ library of portable skills, and deterministic gates that decide when work is don
 `delegate_task`), and it degrades to honest single-harness execution in standalone CLIs
 (Claude Code, Codex CLI, Antigravity, Cursor).
 
-Version `0.2.0`. Requires Node.js `>=20`, `bash`, and `git`. No npm dependencies.
+Version `0.2.1`. Requires Node.js `>=20`, `bash`, and `git`. No npm dependencies.
 `specs/initialization-build/spec.md` is the canonical system specification; `AGENTS.md` is the repo law.
 
 ## How it works
@@ -83,6 +83,12 @@ it that way, because it copies whole directories into `dist/`.
 
 ## Install
 
+Download `install.sh` from the [v0.2.1 release](https://github.com/RobinChiam/rcstack/releases/tag/v0.2.1)
+and run `bash install.sh`. It downloads the matching release archive over HTTPS and installs
+it under `~/.rcstack`. Release installs also require `curl` and `tar`.
+
+From a source checkout:
+
 ```bash
 bash adapters/install.sh --dry-run    # print the plan; changes nothing
 bash adapters/install.sh              # promote into ~/.rcstack/dist and link the 5 skills
@@ -91,8 +97,10 @@ bash adapters/install.sh              # promote into ~/.rcstack/dist and link th
 The installer verifies the source first and refuses to overwrite any non-symlink in a harness
 directory. During an upgrade, it uses an atomic exchange when available. Otherwise, it moves the
 old installation aside and then moves the replacement into place, so `dist/` can be briefly absent.
-It seeds `~/.rcstack/profiles/*.yaml` only when missing and initializes the `~/.rcstack/runtime/`
-shadow git repo. Re-running it is safe. Edit your routing in `~/.rcstack/profiles/`.
+A new installation seeds `~/.rcstack/profiles/rcstack-main.yaml` and initializes the
+`~/.rcstack/runtime/` shadow Git repository. The router uses the consolidated file if present,
+then an existing legacy local domain file, then the shipped defaults. Upgrades preserve your
+machine-local profiles.
 
 ## Skills
 
@@ -145,7 +153,7 @@ Work that cannot reach its floor ships only under an explicit
 
 ## Default model stack
 
-Shipped in `profiles/` and seeded into `~/.rcstack/profiles/` on first install. `fb` is the
+Defined in `profiles/rcstack-main.yaml` with shared aliases and domain overrides. `fb` is the
 fallback, `sec` the secondary.
 
 | Capability | Engineering | Study | Research |

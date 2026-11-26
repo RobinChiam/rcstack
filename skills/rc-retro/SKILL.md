@@ -55,8 +55,10 @@ Turn the telemetry of past runs into specific proposed diffs to profiles and ski
 4. **Separate signal from noise.** For each pattern give the count, the denominator, and the rows.
    Label a pattern with thin evidence as a hypothesis, not a finding.
 5. **Write concrete tuning diffs.** Every recommendation is a unified diff against a real file:
-   a binding, chain, or tier gate in `~/.rcstack/profiles/<profile>.yaml`; a `tier3_path_patterns`
-   entry; or a step in a skill or playbook in the source checkout. No diff, no recommendation.
+   a binding, chain, tier gate, or `tier3_path_patterns` entry in the selected routing file,
+   or a step in a skill or playbook. In `~/.rcstack/profiles/rcstack-main.yaml`, scope a
+   capability override to its domain. A change to common defaults affects every domain
+   that inherits them.
 6. **Respect the invariants.** A proposal never weakens `reviewer != builder`, never enables
    self-review, never moves a reviewer-only model into a builder capability, and never lowers a
    tier's assurance floor. Changing a guardrail needs a decision entry, which the proposal drafts.
