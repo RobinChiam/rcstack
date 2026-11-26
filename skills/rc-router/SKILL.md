@@ -60,7 +60,9 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
      spec constrains its sub-specs.
    - Run `node ~/.rcstack/dist/scripts/rc-state.mjs reconcile --repo <repo>`. Exit `2` means
      drift: **git beats state**. Report the drift, trust `git status` and `git log`, and continue
-     from what git shows. Never edit a state file by hand.
+     from what git shows. When active state exists, read it with `rc-state.mjs show --json` and
+     load the profile, domain rules, and playbook selected by that committed state on resume.
+     Never edit a state file by hand.
 
 2. **Classify and route.** Assign all four before any work starts.
    - **Profile:** `rcstack-engineering` for software changes, `rcstack-study` for learning,
@@ -77,8 +79,11 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
    - **Tier 3 auto-escalation:** if any path the task targets or touches matches the profile's
      `tier3_path_patterns`, the tier is 3 and the playbook is `engineering/security-critical`.
      Re-check every Work Receipt's `files_touched` against the patterns; on a match run
-     `rc-state.mjs transition --escalate-tier 3` and re-route. Escalation is one-way: only the
-     human de-escalates.
+     `rc-state.mjs transition --escalate-tier 3`, which atomically updates committed state to
+     profile `rcstack-engineering`, playbook `security-critical`, Tier 3, and floor `A3`. Reload
+     that profile, its domain rules, and `engineering/security-critical` (and load them on resume),
+     and observe the Tier 3 human spec sign-off pause before continuing implementation. Escalation
+     is one-way: only the human de-escalates.
    - **Playbook:** exactly one.
 
      | Request | Playbook |

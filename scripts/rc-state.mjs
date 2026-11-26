@@ -91,6 +91,8 @@ const OPTIONAL_META = Object.freeze(['blocked_from', 'escalated_from_tier']);
 const BODY_HEADINGS = Object.freeze(['## Active Goal', '## Admitted Receipts', '## Next Step', '## Open Blockers']);
 const NONE = '_None._';
 const BLOCKED_TAG = '[BLOCKED] ';
+const TIER3_PROFILE = 'rcstack-engineering';
+const TIER3_PLAYBOOK = 'security-critical';
 const SHA = /^[0-9a-f]{7,64}$/;
 const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const CONTROL = /[\u0000-\u001f\u007f]/;
@@ -257,6 +259,30 @@ function oneLine(value, label, max = 500) {
 
 function rank(assurance) {
   return ASSURANCE_LEVELS.indexOf(assurance);
+}
+
+function isEscalatedTier3(meta) {
+  return meta.risk_tier === 3 && meta.escalated_from_tier !== undefined;
+}
+
+function applyTier3EscalatedRoute(meta) {
+  meta.profile = TIER3_PROFILE;
+  meta.playbook = TIER3_PLAYBOOK;
+  meta.risk_tier = 3;
+  if (rank('A3') > rank(meta.required_assurance)) meta.required_assurance = 'A3';
+}
+
+function normalizeLoadedState(state) {
+  if (!isEscalatedTier3(state.meta)) return false;
+  if (
+    state.meta.profile === TIER3_PROFILE &&
+    state.meta.playbook === TIER3_PLAYBOOK &&
+    rank(state.meta.required_assurance) >= rank('A3')
+  ) {
+    return false;
+  }
+  applyTier3EscalatedRoute(state.meta);
+  return true;
 }
 
 function validateMeta(meta) {
@@ -602,13 +628,14 @@ function withLock(ctx, flags, fn) {
 }
 
 function loadState(ctx) {
-  const text = committedText(ctx);
-  if (text === null) return null;
-  const state = parseState(text);
+  const committed = committedText(ctx);
+  if (committed === null) return null;
+  const state = parseState(committed);
   if (state.meta.repo !== ctx.id.name || state.meta.branch !== ctx.id.branch) {
     fail('SLUG_COLLISION', `${ctx.rel} belongs to ${state.meta.repo}/${state.meta.branch}, not ${ctx.id.name}/${ctx.id.branch}`);
   }
-  return { state, text };
+  const normalized = normalizeLoadedState(state);
+  return { state, text: normalized ? renderState(state) : committed, committedText: committed };
 }
 
 function requireState(ctx) {
@@ -772,7 +799,7 @@ function cmdTransition(flags) {
         fail('RECEIPT_REJECTED', `the Work Receipt did not pass the admission gate:\n  - ${admission.reasons.join('\n  - ')}`);
       }
     }
-    const { state, text: previousText } = requireState(ctx);
+    const { state, committedText: previousText } = requireState(ctx);
     const meta = state.meta;
     if (meta.rev !== flags['--expected-rev']) {
       fail('REV_CONFLICT', `expected rev ${flags['--expected-rev']} but the state is at rev ${meta.rev}; re-read it before deciding again`);
@@ -804,6 +831,7 @@ function cmdTransition(flags) {
       meta.escalated_from_tier ??= meta.risk_tier;
       meta.risk_tier = tier;
       if (rank(`A${tier}`) > rank(meta.required_assurance)) meta.required_assurance = `A${tier}`;
+      if (tier === 3) applyTier3EscalatedRoute(meta);
     }
     if (flags['--resolve-blockers']) state.blockers = state.blockers.filter((b) => b.startsWith(BLOCKED_TAG));
     if (blocker !== undefined) state.blockers.push(to === 'BLOCKED' ? `${BLOCKED_TAG}${blocker}` : blocker);

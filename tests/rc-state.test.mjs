@@ -439,9 +439,204 @@ describe('transition', () => {
     assert.equal(out.risk_tier, 3);
     assert.equal(out.required_assurance, 'A3');
     assert.equal(out.phase, 'TRIAGE');
-    assert.equal(ok(f, 'show', '--json').escalated_from_tier, 2);
+    const shown = ok(f, 'show', '--json');
+    assert.equal(shown.profile, 'rcstack-engineering');
+    assert.equal(shown.playbook, 'security-critical');
+    assert.equal(shown.escalated_from_tier, 2);
     assert.equal(shadowLog(f)[0], 'state(widgets/main): TRIAGE -> TRIAGE (rev 2, A0)');
     assert.match(run(f, 'transition', '--expected-rev', '2', '--escalate-tier', '2').stderr, /escalation is one-way/);
+  });
+
+  test('Tier 3 escalation persists engineering/security-critical across engineering, study, and research in one commit', () => {
+    const cases = [
+      ['rcstack-engineering', 'feature-build', '2'],
+      ['rcstack-study', 'topic-deep-dive', '2'],
+      ['rcstack-research', 'research-report', '2'],
+    ];
+    for (const [profile, playbook, startTier] of cases) {
+      const f = fixture();
+      ok(f, 'init', '--profile', profile, '--playbook', playbook, '--tier', startTier, '--goal', `work in ${profile}`);
+      const beforeCount = shadowLog(f).length;
+      const out = ok(f, 'transition', '--expected-rev', '1', '--escalate-tier', '3');
+      assert.equal(out.risk_tier, 3, profile);
+      assert.equal(out.required_assurance, 'A3', profile);
+      assert.equal(shadowLog(f).length, beforeCount + 1, `${profile}: single shadow commit`);
+
+      const shown = ok(f, 'show', '--json');
+      assert.equal(shown.profile, 'rcstack-engineering', profile);
+      assert.equal(shown.playbook, 'security-critical', profile);
+      assert.equal(shown.risk_tier, 3, profile);
+      assert.equal(shown.required_assurance, 'A3', profile);
+      assert.equal(shown.escalated_from_tier, Number(startTier), profile);
+
+      const plain = run(f, 'show').stdout;
+      assert.match(plain, /^profile: "rcstack-engineering"$/m, profile);
+      assert.match(plain, /^playbook: "security-critical"$/m, profile);
+      const committed = git(f.runtime, 'show', `HEAD:${stateRelPath('widgets', f.branch)}`);
+      assert.equal(committed, plain.trimEnd(), `${profile}: committed blob matches show`);
+    }
+  });
+
+  test('lower-tier escalation retains its route and subsequent Tier 3 escalation preserves the first escalated_from_tier', () => {
+    const f = fixture();
+    ok(f, 'init', '--profile', 'rcstack-study', '--playbook', 'recall-and-drill', '--tier', '1', '--goal', 'drill');
+    const mid = ok(f, 'transition', '--expected-rev', '1', '--escalate-tier', '2');
+    assert.equal(mid.risk_tier, 2);
+    assert.equal(mid.required_assurance, 'A2');
+    let shown = ok(f, 'show', '--json');
+    assert.equal(shown.profile, 'rcstack-study');
+    assert.equal(shown.playbook, 'recall-and-drill');
+    assert.equal(shown.escalated_from_tier, 1);
+
+    const top = ok(f, 'transition', '--expected-rev', '2', '--escalate-tier', '3');
+    assert.equal(top.risk_tier, 3);
+    assert.equal(top.required_assurance, 'A3');
+    shown = ok(f, 'show', '--json');
+    assert.equal(shown.profile, 'rcstack-engineering');
+    assert.equal(shown.playbook, 'security-critical');
+    assert.equal(shown.escalated_from_tier, 1, 'preserves first escalated_from_tier');
+  });
+
+  test('a task initialized directly at Tier 3 lacks escalated_from_tier and retains its selected route', () => {
+    const f = fixture();
+    ok(f, 'init', '--profile', 'rcstack-study', '--playbook', 'topic-deep-dive', '--tier', '3', '--goal', 'high-stakes notes');
+    let shown = ok(f, 'show', '--json');
+    assert.equal(shown.profile, 'rcstack-study');
+    assert.equal(shown.playbook, 'topic-deep-dive');
+    assert.equal(shown.risk_tier, 3);
+    assert.equal(shown.required_assurance, 'A3');
+    assert.equal(shown.escalated_from_tier, undefined);
+
+    move(f, 'RESEARCHING', 1);
+    shown = ok(f, 'show', '--json');
+    assert.equal(shown.profile, 'rcstack-study');
+    assert.equal(shown.playbook, 'topic-deep-dive');
+    assert.match(run(f, 'show').stdout, /^playbook: "topic-deep-dive"$/m);
+  });
+
+  test('stale revision or failed commit during Tier 3 escalation preserves the prior route', () => {
+    const f = fixture();
+    ok(f, 'init', '--profile', 'rcstack-research', '--playbook', 'viability-spike', '--tier', '2', '--goal', 'spike');
+    move(f, 'RESEARCHING', 1);
+    const before = fs.readFileSync(stateFile(f), 'utf8');
+
+    const stale = run(f, 'transition', '--expected-rev', '1', '--escalate-tier', '3');
+    assert.equal(stale.status, 1);
+    assert.match(stale.stderr, /REV_CONFLICT/);
+    assert.equal(ok(f, 'show', '--json').profile, 'rcstack-research');
+    assert.equal(ok(f, 'show', '--json').playbook, 'viability-spike');
+    assert.equal(fs.readFileSync(stateFile(f), 'utf8'), before);
+
+    const indexLock = path.join(f.runtime, '.git', 'index.lock');
+    fs.writeFileSync(indexLock, '');
+    const failed = run(f, 'transition', '--expected-rev', '2', '--escalate-tier', '3');
+    fs.rmSync(indexLock);
+    assert.equal(failed.status, 1);
+    assert.match(failed.stderr, /COMMIT_FAILED/);
+    assert.equal(fs.readFileSync(stateFile(f), 'utf8'), before);
+    assert.equal(ok(f, 'show', '--json').profile, 'rcstack-research');
+    assert.equal(ok(f, 'show', '--json').playbook, 'viability-spike');
+    assert.equal(shadowLog(f).length, 2);
+  });
+
+  test('legacy committed escalated state reports effective route on show without writing, rolls back to original bytes, and persists on next transition', () => {
+    const f = fixture();
+    ok(f, 'init', '--profile', 'rcstack-study', '--playbook', 'topic-deep-dive', '--tier', '2', '--goal', 'deep study');
+    let rev = move(f, 'RESEARCHING', 1).rev;
+    rev = move(f, 'PLANNING', rev).rev;
+    rev = move(f, 'EXECUTING', rev).rev;
+    const c1 = commitFile(f.repo, 'notes/ch1.md', '# Ch1\n', 'notes');
+    rev = move(f, 'VERIFYING', rev, '--admit-receipt', writeReceipt(f, f.base, c1, ['notes/ch1.md'], { audit_blockers: 0, audit_majors: 1 })).rev;
+    assert.equal(ok(f, 'show', '--json').achieved_assurance, 'A2');
+
+    // Commit a legacy-format escalated state directly into shadow history (old profile/playbook kept with tier 3 + escalated_from_tier).
+    const current = parseState(fs.readFileSync(stateFile(f), 'utf8'));
+    current.meta.risk_tier = 3;
+    current.meta.required_assurance = 'A3';
+    current.meta.escalated_from_tier = 2;
+    current.meta.rev += 1;
+    const legacyBytes = renderState(current);
+    assert.match(legacyBytes, /^profile: "rcstack-study"$/m);
+    assert.match(legacyBytes, /^playbook: "topic-deep-dive"$/m);
+    fs.writeFileSync(stateFile(f), legacyBytes);
+    git(f.runtime, 'add', '-f', '--', stateRelPath('widgets', f.branch));
+    git(f.runtime, 'commit', '-q', '--no-verify', '-m', `state(widgets/main): VERIFYING -> VERIFYING (rev ${current.meta.rev}, A2)`);
+    const legacyLogBefore = shadowLog(f);
+    const legacyRev = current.meta.rev;
+
+    // 1. Both show forms report the effective route without touching disk or shadow history.
+    const shownJson = ok(f, 'show', '--json');
+    assert.equal(shownJson.profile, 'rcstack-engineering');
+    assert.equal(shownJson.playbook, 'security-critical');
+    assert.equal(shownJson.risk_tier, 3);
+    assert.equal(shownJson.required_assurance, 'A3');
+    assert.equal(shownJson.escalated_from_tier, 2);
+    assert.equal(shownJson.achieved_assurance, 'A2');
+    assert.equal(shownJson.receipts.length, 1);
+
+    const shownPlain = run(f, 'show').stdout;
+    assert.match(shownPlain, /^profile: "rcstack-engineering"$/m);
+    assert.match(shownPlain, /^playbook: "security-critical"$/m);
+    assert.match(shownPlain, /^risk_tier: 3$/m);
+    assert.match(shownPlain, /^required_assurance: "A3"$/m);
+    assert.equal(fs.readFileSync(stateFile(f), 'utf8'), legacyBytes, 'show does not rewrite disk');
+    assert.deepEqual(shadowLog(f), legacyLogBefore, 'show does not touch shadow history');
+    assert.equal(git(f.runtime, 'show', `HEAD:${stateRelPath('widgets', f.branch)}`), legacyBytes.trimEnd(), 'raw history keeps original commit');
+
+    // 2. Working copy disagreement is ignored on reads, and stale caller restores committed bytes and fails.
+    fs.writeFileSync(stateFile(f), legacyBytes.replace('profile: "rcstack-study"', 'profile: "rcstack-research"').replace('risk_tier: 3', 'risk_tier: 2'));
+    assert.equal(ok(f, 'show', '--json').profile, 'rcstack-engineering');
+    assert.equal(ok(f, 'show', '--json').playbook, 'security-critical');
+    const stale = run(f, 'transition', '--to', 'AUDITING', '--expected-rev', String(legacyRev - 1));
+    assert.equal(stale.status, 1);
+    assert.match(stale.stderr, /REV_CONFLICT/);
+    assert.equal(fs.readFileSync(stateFile(f), 'utf8'), legacyBytes, 'stale write restores actual committed bytes');
+    assert.deepEqual(shadowLog(f), legacyLogBefore);
+
+    // 3. Failed shadow commit rolls back to the actual original committed bytes (not normalized text).
+    const indexLock = path.join(f.runtime, '.git', 'index.lock');
+    fs.writeFileSync(indexLock, '');
+    const failed = run(f, 'transition', '--to', 'AUDITING', '--expected-rev', String(legacyRev));
+    fs.rmSync(indexLock);
+    assert.equal(failed.status, 1);
+    assert.match(failed.stderr, /COMMIT_FAILED/);
+    assert.equal(fs.readFileSync(stateFile(f), 'utf8'), legacyBytes, 'failed commit rolls back to original legacy committed bytes');
+    assert.deepEqual(shadowLog(f), legacyLogBefore);
+
+    // 4. Ordinary successful transition persists the effective route while preserving receipts and earned assurance (HEAD unchanged).
+    const moved = move(f, 'AUDITING', legacyRev, '--next', 'Observe Tier 3 audit');
+    assert.equal(moved.achieved_assurance, 'A2', 'earned assurance preserved when HEAD did not move');
+    assert.equal(shadowLog(f).length, legacyLogBefore.length + 1);
+    const persisted = git(f.runtime, 'show', `HEAD:${stateRelPath('widgets', f.branch)}`);
+    assert.match(persisted, /^profile: "rcstack-engineering"$/m);
+    assert.match(persisted, /^playbook: "security-critical"$/m);
+    const afterJson = ok(f, 'show', '--json');
+    assert.equal(afterJson.receipts.length, 1);
+    assert.equal(afterJson.achieved_assurance, 'A2');
+
+    // 5. Usual HEAD reset still applies on a legacy state when HEAD moved before the persisting transition.
+    const f2 = fixture();
+    ok(f2, 'init', '--profile', 'rcstack-study', '--playbook', 'topic-deep-dive', '--tier', '2', '--goal', 'head reset check');
+    let r2 = move(f2, 'RESEARCHING', 1).rev;
+    r2 = move(f2, 'PLANNING', r2).rev;
+    r2 = move(f2, 'EXECUTING', r2).rev;
+    const d1 = commitFile(f2.repo, 'notes/a.md', 'a\n', 'first');
+    r2 = move(f2, 'VERIFYING', r2, '--admit-receipt', writeReceipt(f2, f2.base, d1, ['notes/a.md'], { audit_blockers: 0, audit_majors: 1 })).rev;
+    const leg2 = parseState(fs.readFileSync(stateFile(f2), 'utf8'));
+    leg2.meta.risk_tier = 3;
+    leg2.meta.required_assurance = 'A3';
+    leg2.meta.escalated_from_tier = 2;
+    leg2.meta.rev += 1;
+    fs.writeFileSync(stateFile(f2), renderState(leg2));
+    git(f2.runtime, 'add', '-f', '--', stateRelPath('widgets', f2.branch));
+    git(f2.runtime, 'commit', '-q', '--no-verify', '-m', `state(widgets/main): VERIFYING -> VERIFYING (rev ${leg2.meta.rev}, A2)`);
+    commitFile(f2.repo, 'notes/b.md', 'b\n', 'moved head');
+    const resetMove = move(f2, 'AUDITING', leg2.meta.rev);
+    assert.equal(resetMove.achieved_assurance, 'A0', 'HEAD move still resets achieved assurance');
+    const resetShown = ok(f2, 'show', '--json');
+    assert.equal(resetShown.profile, 'rcstack-engineering');
+    assert.equal(resetShown.playbook, 'security-critical');
+    assert.match(resetShown.receipts.at(-1), /^Evidence reset:/);
   });
 
   test('keeps free text on one line so it cannot forge state sections', () => {
