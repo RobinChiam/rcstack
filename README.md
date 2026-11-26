@@ -1,8 +1,8 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# rcstack-beta
+# rcstack
 
-A personal multi-model agent operating system: one front-door router (`/rcstack`), a small
+A personal multi-model agent workflow kit: one front-door router (`/rcstack`), a small
 library of portable skills, and deterministic gates that decide when work is done. Built for
 **T3 Code** (multi-provider orchestration through `orchestrator_capabilities` and
 `delegate_task`), and it degrades to honest single-harness execution in standalone CLIs
@@ -71,10 +71,10 @@ never installed, and it never holds task state or telemetry. Check any repositor
 
 ## Custom and ignored paths
 
-The validator fixes the contents of the directories rcstack owns (`skills/`, `profiles/`,
-`contracts/`, `scripts/`, ...) and nothing else. The repository root is open: a custom top-level
-entry such as `.archive/` or `LICENSE` is never listed or read, tracked or not. Only `playbooks`,
-`SPEC.md`, `spec.md` and `node_modules` are refused there.
+The validator enforces the listed contents of closed directories such as `skills/`, `profiles/`,
+`contracts/`, and `scripts/`. The `docs/` directory can hold additional documentation alongside
+the required decisions log. The root allows custom entries such as `.archive/` and `LICENSE`.
+The reserved root entries `playbooks`, `SPEC.md`, `spec.md`, and `node_modules` fail verification.
 
 Inside the owned directories, paths that git ignores and does not track (an editor's scratch
 file, `.DS_Store`) are skipped. Git decides what is ignored; a tracked file is always judged.
@@ -136,20 +136,90 @@ Router-only. Never invoked directly.
 Escalating any active task to Tier 3 atomically persists the `rcstack-engineering` / `security-critical`
 (`T3`/`A3`) route.
 
-## Assurance ladder
+## Risk tiers and assurance
 
-Assurance is computed from evidence by `scripts/rc-receipt.mjs`. Nobody rates their own confidence.
+The **risk tier** describes the work and selects the workflow. The **required assurance** is the
+minimum evidence that workflow calls for. **Achieved assurance** describes the evidence currently
+on record for the result. A task can require stronger evidence than its usual floor.
 
-| Level | Meaning | Evidence |
-| :--- | :--- | :--- |
-| `A0` Speculative | Reasoning or lookup only | No deterministic check ran |
-| `A1` Mechanical | Format, lint, static and type checks pass | Verify command exited `0`, `mechanical` passed |
-| `A2` Behavioral | `A1` plus tests on the changed paths | `behavioral` passed and an independent audit has 0 open Blockers |
-| `A3` Hardened | `A2` plus edge-case, security, or runtime proof | `hardened` passed and a cross-family audit has 0 open Blockers or Majors |
+| Risk tier | Typical work | Usual floor |
+| --- | --- | --- |
+| **T0** | Read-only lookup, explanation, or a planning discussion in chat | **A0** |
+| **T1** | Quick, reversible work such as a prototype, UI polish, or a practice session | **A1** |
+| **T2** | Work people will rely on, such as a feature, bug fix, refactor, or research report | **A2** |
+| **T3** | Changes to sensitive boundaries, such as installers, auth, infrastructure, schemas, or rcstack's verifier | **A3** |
 
-Tier `N` normally requires at least `A<N>`. The Socratic session uses its listed A0 floor at Tier 1.
-Work that cannot reach its floor ships only under an explicit
-`ASSURANCE GAP` banner on the Review Map, and the gap is logged.
+| Risk tier | Achieved A0 | Achieved A1 | Achieved A2 | Achieved A3 |
+| --- | --- | --- | --- | --- |
+| **T0** | **Expected.** The read-only answer or plan is the deliverable. | Outside the normal T0 workflow. | Outside the normal T0 workflow. | Outside the normal T0 workflow. |
+| **T1** | Below the usual floor. The shipped **Socratic session** explicitly uses T1/A0. | **Meets the usual floor.** Mechanical checks passed. | Above the usual floor if the stronger evidence was actually collected and admitted. | Above the usual floor if the hardened evidence and audit were collected and admitted. |
+| **T2** | Gap. Mechanical verification is missing for the current result. | Gap. Mechanical checks passed, but the behavioral tests or qualifying audit are still missing. | **Meets the usual floor.** Tests and independent audit support the change. | Exceeds the usual floor. A task can also explicitly require A3. |
+| **T3** | Gap. Mechanical verification is missing for the current result. | Gap. Mechanical checks alone leave both behavioral and hardened assurance unmet. | Gap. Behavioral assurance is established, but hardened evidence or the stricter audit is still missing. | **Meets the required floor.** The hardened checks and cross-family audit support the change. |
+
+### How assurance is calculated
+
+The [Work Receipt](contracts/work-receipt.md) records the base and head commits, changed files,
+verification command and exit code, passed check classes, and any open audit findings. The
+[receipt gate](scripts/rc-receipt.mjs) validates the fields and types, checks the claimed range
+and exact file list against Git, checks the allowed paths when supplied, requires a clean
+working tree, and requires a recorded successful verification command. It computes assurance
+for admitted receipts using this ladder.
+
+| Level | Evidence |
+| --- | --- |
+| **A0** | The current result has no admitted mechanical evidence. This also covers read-only work without a receipt. |
+| **A1** | The recorded verification command exited `0` and `mechanical` checks passed, such as formatting, lint, or type checks. |
+| **A2** | A1 plus passing `behavioral` tests for the changed paths and an independent audit with zero open Blockers. |
+| **A3** | A2 plus passing `hardened` checks and a cross-family audit with zero open Blockers or Majors. Hardened checks target edge cases, security, or runtime behavior. |
+
+Audit counts stay `null` until an independent audit runs. That caps unaudited work at A1.
+The router enforces reviewer independence and records the audit result. The receipt gate
+computes the level from the recorded check classes and finding counts.
+
+### How the floor is enforced
+
+For stateful work, only an integrated receipt spanning the task's base commit to the current
+`HEAD` sets achieved assurance. Slice receipts document individual pieces of work. When
+`HEAD` moves, the next state transition resets achieved assurance to A0 unless it admits a
+new integrated receipt for the new head.
+
+`rc-state.mjs` requires a clean tree and zero open state blockers before entering
+`AWAITING_REVIEW` or `SHIPPED`. Below the required floor, it blocks the transition unless the
+gap is explicitly acknowledged with `--ack-assurance-gap`. The router brings that decision to
+the human, records the lower achieved level, puts an **ASSURANCE GAP** banner on the Review
+Map, and logs the gap at closeout when the tier requires telemetry.
+
+## State management
+
+Tier 2 and Tier 3 workflows track one active task per repository and branch under
+`~/.rcstack/runtime/state/`, in a local Git repository used for task history. The main
+thread updates state through [rc-state.mjs](scripts/rc-state.mjs). Each update acquires a
+lock, checks the expected revision, writes the new state atomically, and commits the change
+to that history. A stale revision requires reading the latest state before retrying.
+
+```text
+TRIAGE → RESEARCHING → PLANNING → EXECUTING → VERIFYING → AUDITING → AWAITING_REVIEW → SHIPPED
+```
+
+Verification, audit, or human review can send work back to execution. A blocked task resumes
+in the phase it left. `show` reads the committed task state. `reconcile` compares it with the
+live Git branch, head, and working tree, reporting drift without writing. `close` removes
+the active state after shipping while retaining its history in the local Git repository.
+
+## Review Maps and type safety
+
+rcstack uses **runtime validation** for the handoffs between agents. The profile schema
+checks configuration types and allowed values. The receipt gate checks typed evidence and
+its Git scope. The state manager checks state fields, revisions, allowed transitions, and
+the assurance floor. These checks make malformed handoffs fail at the point they enter the
+workflow.
+
+The [Review Map](contracts/review-map.md) is the human-readable record of those checks. The
+router prepares it at `AWAITING_REVIEW` with the required and achieved levels, changed files
+in risk order, assumptions, audit findings and their disposition, and verification commands
+and results. The verifier checks the required sections and fields in the Markdown contract.
+The scripts enforce the validated inputs and state gates, and the map shows the evidence
+behind the decision.
 
 ## Default model stack
 
@@ -192,6 +262,28 @@ audit counts and cap at `A1`.
 
 Every script takes explicit path flags (`--root`, `--runtime-dir`, `--repo`, `--file`), so the
 tests in `tests/` run entirely inside temporary directories.
+
+## How the verifier works
+
+[verify.mjs](scripts/verify.mjs) checks the repository against the system spec in three
+cumulative slices. Running it with no arguments runs all three.
+
+| Slice | What it checks |
+| --- | --- |
+| **1 · Foundation** | Required files, decision-log fields, feature-local spec layout, owned-tree boundaries, symlinks, and dependency rules. |
+| **2 · Routing and contracts** | Strict YAML and schema validation for the consolidated profile and its domain projections, reviewer independence, contract structure, and playbook frontmatter, tier gates, and router-only boundaries. |
+| **3 · Full repository** | All five skills, script and adapter syntax, the test suite inventory, and references between owned files. |
+
+The verifier reports each check and exits `0` when all pass or `1` when any fail. In
+repository mode it normally skips untracked paths ignored by Git. The installer passes
+`--include-ignored` before copying directories. The profile and specs modes check narrower
+inputs. Use `--domain` with `--profile` to print one validated domain projection as JSON.
+
+```bash
+node scripts/verify.mjs --slice=2
+node scripts/verify.mjs --profile profiles/rcstack-main.yaml --domain engineering
+node scripts/verify.mjs --specs specs
+```
 
 ## Develop
 
