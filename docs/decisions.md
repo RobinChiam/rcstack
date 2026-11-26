@@ -253,3 +253,82 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
   a tracked file matching an ignore pattern is still judged, and that an ignore rule cannot excuse
   a missing file; `tests/install.test.mjs` proves the installer refuses an ignored file in a
   directory it copies.
+
+## DEC-016 — Tier 3 escalation atomically persists the `engineering/security-critical` route
+
+- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Decision:** A successful `scripts/rc-state.mjs transition --escalate-tier 3` atomically sets
+  `profile` to `rcstack-engineering`, `playbook` to `security-critical`, `risk_tier` to `3`, and
+  `required_assurance` to `A3` in one shadow commit while preserving the first
+  `escalated_from_tier` and existing rules for phase, revision, `HEAD`, and achieved assurance.
+  Lower-tier escalations retain their profile and playbook. For previously committed states that
+  carry both `risk_tier: 3` and `escalated_from_tier`, reads derive the same effective route from
+  committed state without writing, the next successful transition persists it through the normal
+  lock and shadow commit, and failed writes roll back to the original committed bytes. A task
+  initialized directly at Tier 3 lacks `escalated_from_tier` and retains its chosen route.
+  `rc-router` loads the selected profile and playbook on resume and observes the Tier 3 spec
+  sign-off pause before continuing implementation.
+- **Rejected Alternative:** Updating only `risk_tier` and `required_assurance` on escalation (so a
+  resumed session recovers the pre-escalation playbook), or rewriting legacy state during read-only
+  `show` commands (violating DEC-005).
+- **Guardrail:** `scripts/rc-state.mjs` applies the atomic Tier 3 route update on
+  `--escalate-tier 3`, derives the effective route from committed state for legacy escalated tasks
+  in both `show` and `transition`, and rolls back failed commits to the raw committed bytes.
+  `tests/rc-state.test.mjs` covers Tier 3 escalation across engineering, study, and research tasks,
+  lower-tier escalation, direct Tier 3 init, legacy read/write/rollback, and revision conflicts.
+
+## DEC-017 — Degraded telemetry rows never carry reviewer identities or audit counts
+
+- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Decision:** Any new telemetry row with `degraded_single_harness: true` must carry
+  `reviewers: []`, empty `audit_accepted: {}` and `audit_dismissed: {}`, and `achieved_assurance`
+  of `A0` or `A1`. Invalid rows are rejected before append without modifying the log. Independent
+  multi-builder cross-review remains valid on non-degraded audited runs. Historical rows remain
+  readable as recorded, and `rc-retro` treats historical degraded rows as supplying no independent
+  reviewer evidence.
+- **Rejected Alternative:** Allowing `degraded_single_harness: true` to bypass the
+  `reviewer != builder` overlap check and record the builder or any other model in `reviewers` or
+  audit counts, which attributes independent review to an unaudited degraded run.
+- **Guardrail:** `contracts/telemetry-event.schema.json` constrains degraded rows to empty
+  `reviewers`, empty audit counts, and `A0`/`A1`; `scripts/rc-log.mjs` rejects invalid degraded
+  rows before append; `skills/rc-retro/SKILL.md` excludes degraded rows from independent reviewer
+  evidence; `tests/rc-log.test.mjs` covers valid degraded `A0`/`A1` rows, rejected reviewer, count,
+  and `A2`/`A3` claims, valid multi-builder cross-review, and preserved log bytes.
+
+## DEC-018 — The `require_verify` exception is scoped strictly to `study/socratic-session` at default Tier 1/A0
+
+- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Decision:** Only the canonical `study/socratic-session` playbook at its default Tier 1 and `A0`
+  floor is exempt from the profile `require_verify` gate, because the session produces no checkable
+  artifact (system spec section 2.4). Every other gate enabled on its tier still applies, every
+  other Tier 1 playbook must honour `require_verify`, and an `A0` assurance label alone never
+  disables verification.
+- **Rejected Alternative:** Skipping `require_verify` whenever a playbook declares
+  `required_assurance: A0` (`unlessAssurance: 'A0'`), which lets an assurance label alone disable
+  verification for any playbook.
+- **Guardrail:** `scripts/verify.mjs` matches the `require_verify` exception by canonical playbook
+  (`study/socratic-session`, Tier 1, `A0`) and scopes it strictly to `require_verify`.
+  `tests/verify.test.mjs` asserts that shipped `study/socratic-session` passes, its other enabled
+  tier gates fail when unmet, ordinary Tier 1 playbooks omitting verification fail, and an `A0`
+  label alone never qualifies for the exception.
+
+## DEC-019 — `rc-setup` reports paired models and external companions separately with explicit evidence states
+
+- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Decision:** `skills/rc-setup/SKILL.md` checks and reports each configured `paired` model and
+  external `companion` (`driver_kind: "external"`) separately from a capability's primary model and
+  `secondary`/`fallback` chain. A `paired` model requires a matching live provider, model, and
+  supported `options`. An external `companion` requires observed evidence of the corresponding
+  capability in the current environment, named in the report. Each configured dependency
+  distinguishes observed availability (`available`/`resolved`), observed absence (`unavailable`),
+  and missing check evidence (`unverified`), applying the same distinction when catalog discovery
+  is unavailable.
+- **Rejected Alternative:** Checking only primary, `secondary`, and `fallback` bindings, or
+  collapsing unchecked dependencies into `unavailable` or omitting them when discovery fails.
+- **Guardrail:** `skills/rc-setup/SKILL.md` requires separate reporting and the
+  available/unavailable/unverified distinction for every configured `paired` model and `companion`
+  dependency, while `scripts/verify.mjs` enforces the skill contract and model-agnosticism.

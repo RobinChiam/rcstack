@@ -87,7 +87,7 @@ initializes the `~/.rcstack/runtime/` shadow git repo. Re-running it is safe. Ed
 | Skill | Job |
 | :--- | :--- |
 | `rc-router` | Front door: classify, route, resolve live models, gate delivery |
-| `rc-setup` | Discover live models, validate machine-local profiles, check harness symlinks |
+| `rc-setup` | Discover live models, paired models, and companions; validate profiles; check harness links |
 | `rc-init` | Bootstrap a target repo with opt-in modules |
 | `rc-doctor` | Diagnose a repo, then apply approved atomic cures |
 | `rc-retro` | Turn telemetry into concrete profile and skill tuning diffs |
@@ -110,6 +110,10 @@ Router-only. Never invoked directly.
 | study | `socratic-session` | 1 | A0 |
 | research | `viability-spike` | 2 | A2 |
 | research | `research-report` | 2 | A2 |
+
+`study/socratic-session` at default Tier 1/`A0` is the sole playbook exempt from `require_verify`.
+Escalating any active task to Tier 3 atomically persists the `rcstack-engineering` / `security-critical`
+(`T3`/`A3`) route.
 
 ## Assurance ladder
 
@@ -152,7 +156,8 @@ Reviewers come from `review_matrix`, keyed by whoever built the work:
 | Claude Fable 5.2 | Gemini 4 Neon | Cursor Grok 4.7 |
 
 Cursor Grok 4.7 reviews only; it is never bound to a builder capability. `reviewer != builder`
-cannot be switched off by any profile.
+cannot be switched off by any profile; degraded single-harness runs log `reviewers: []` with empty
+audit counts and cap at `A1`.
 
 ## Deterministic tools
 

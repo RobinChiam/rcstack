@@ -38,7 +38,7 @@ Binding rules for every agent or human changing this repository. The system spec
   `profiles/*.yaml` binds them; `README.md` and the system spec document the default stack.
 - Name an abstract capability instead (`primary_builder`, `independent_reviewer`, ...) and let
   `rc-router` resolve it through the active profile.
-- `reviewer != builder` is absolute. No profile, fallback, or shortcut may permit self-review.
+- `reviewer != builder` is absolute; no profile, fallback, or degraded run permits self-review (DEC-017).
 
 ## Authoring Rules
 
@@ -50,7 +50,7 @@ Binding rules for every agent or human changing this repository. The system spec
   are fixed by the system spec, section 2.4.
 - A playbook must honour every gate its default tier sets in the profile (`require_spec`,
   `require_state_file`, `require_verify`, `require_receipt_gate`, `require_cross_model_audit`,
-  `require_review_map`, `log_telemetry`).
+  `require_review_map`, `log_telemetry`); only `study/socratic-session` (T1/A0) is exempt from `require_verify` (DEC-018).
 - Every `## Do NOT Use When` names the skill or playbook that owns the adjacent task.
 - Profiles and frontmatter use the strict YAML subset: 2-space indent, block mappings and
   sequences, double-quoted model names and globs; `[]` is the only flow form. No tabs, anchors,
@@ -60,7 +60,7 @@ Binding rules for every agent or human changing this repository. The system spec
 
 ## Tier 3 Paths
 
-Edits to these paths are security-critical and route through the `security-critical` playbook:
+Edits to these paths route through `rcstack-engineering` / `security-critical` (Tier 3 escalation persists this route, DEC-016):
 
 - `adapters/install.sh`
 - `scripts/verify.mjs`
