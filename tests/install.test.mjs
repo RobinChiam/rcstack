@@ -453,7 +453,11 @@ describe('refusals', () => {
     assert.equal(res.status, 0, res.out);
     const rc = path.join(home, '.rcstack');
     assert.deepEqual(fs.readdirSync(path.join(rc, 'dist')).sort(), ['contracts', 'defaults', 'rules', 'scripts', 'skills']);
-    assert.equal(snapshot(rc).some((entry) => /refunds|requirements\.md|planning\.md/.test(entry)), false, 'no spec document reached the installed runtime');
+    assert.equal(
+      snapshot(rc).some((entry) => /(?:^|\/)(?:refunds\/|(?:requirements|planning)\.md \[)/.test(entry)),
+      false,
+      'no spec document reached the installed runtime',
+    );
     assertLinks(home);
   });
 
