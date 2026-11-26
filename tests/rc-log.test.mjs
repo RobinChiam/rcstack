@@ -131,6 +131,25 @@ describe('append', () => {
 });
 
 describe('schema rejection', () => {
+  test('rejects project planning telemetry without creating a log', () => {
+    const file = tmpFile();
+    const planning = event({
+      playbook: 'project-planning',
+      risk_tier: 0,
+      required_assurance: 'A0',
+      achieved_assurance: 'A0',
+      reviewers: [],
+      audit_accepted: {},
+      audit_dismissed: {},
+      verify_attempts: 0,
+    });
+    const result = cli(['--file', file, '--json', JSON.stringify(planning)]);
+    assert.equal(result.status, 1);
+    assert.equal(result.json.status, 'REJECTED');
+    assert.match(result.json.errors.join('\n'), /\$\.playbook: must be one of/);
+    assert.equal(fs.existsSync(file), false);
+  });
+
   test('rejects a row missing any required field', () => {
     for (const field of TELEMETRY_REQUIRED_FIELDS) {
       const payload = event();

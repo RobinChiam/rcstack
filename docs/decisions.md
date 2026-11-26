@@ -229,7 +229,7 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
 ## DEC-015 — The root is open; structure is enforced inside owned subtrees, and git decides what is ignored
 
 - **Date:** 2026-11-24
-- **Status:** Accepted
+- **Status:** Accepted (amended by DEC-021)
 - **Decision:** `scripts/verify.mjs` enforces exact membership only inside the directories rcstack
   owns (`skills/`, its playbooks tree, `profiles/`, `contracts/`, `rules/`, `scripts/`,
   `adapters/`, `tests/`, `docs/`, `specs/`). The repository root is open: any other top-level
@@ -345,7 +345,8 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
   the project outcome.
 - **Guardrail:** The router selects the planning conversation before state initialization. The
   verifier pins its canonical name, profile, tier and floor. The state CLI rejects direct init
-  for the planning playbook and the telemetry schema lists only telemetry-producing routes.
+  for the planning playbook. The telemetry schema excludes it and a CLI test proves it does
+  not append a row.
 
 ## DEC-021 — The docs directory can hold guides and reference material
 

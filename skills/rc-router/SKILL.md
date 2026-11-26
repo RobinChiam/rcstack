@@ -58,8 +58,8 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
    - If the repository has a `specs/` directory, find the spec directory the request belongs to
      and read its `spec.md` and the `spec.md` of every parent directory, outermost first. A parent
      spec constrains its sub-specs.
-   - For an initial project planning request, proceed to classification with read-only context.
-     For other work, run `node ~/.rcstack/dist/scripts/rc-state.mjs reconcile --repo <repo>`. Exit `2` means
+   - In a Git repository, run the read-only
+     `node ~/.rcstack/dist/scripts/rc-state.mjs reconcile --repo <repo>`. Exit `2` means
      drift: **git beats state**. Report the drift, trust `git status` and `git log`, and continue
      from what git shows. When active state exists, read it with `rc-state.mjs show --json` and
      load the profile, domain rules, and playbook selected by that committed state on resume.
@@ -68,14 +68,21 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
 2. **Classify and route.** Assign all four before any work starts.
    - **Profile:** `rcstack-engineering` for software changes, `rcstack-study` for learning,
      `rcstack-research` for investigations and viability questions.
-   - **Initial project planning:** if the user wants to shape a new project, select
+   - **Initial project planning:** when the user wants to shape a new project and reconcile
+     reports `state: null`, or there is no repository yet, select
      `engineering/project-planning` under `rcstack-engineering` at Tier 0/A0. Resolve only
      `architect_blueprint`, show the routing plan with the chat handoff as its exit gate, and
      follow the playbook in chat. Skip state initialization, builder and reviewer dispatch,
      spec writes, receipts, and telemetry. Potential paths are planning context. Classify
-     actual file changes when requested. On an explicit spec-only request, save the agreed
-     milestone under the repo's spec rules and stop. Route feature additions, plan changes
-     for projects underway, and implementation requests through the applicable delivery route.
+     actual file changes when requested. Active state uses the normal resume or change route.
+     Feature additions, plan changes for projects underway, and implementation requests use
+     the applicable delivery route.
+   - **Save an agreed spec:** treat an explicit spec-only request as a separate writing action.
+     Confirm which milestone and feature-local path the prior handoff covers. Apply the
+     repository's rules and report the scope, risk tier, and verification before writing.
+     For a routine Tier 1 write, save only the agreed spec and run the repository's spec check.
+     Follow the required path-based route if the destination requires stricter gates. Stop after
+     verifying the spec handoff.
    - **Risk tier:** the highest row that applies.
 
      | Tier | Use when | Floor |

@@ -20,7 +20,8 @@ during the conversation. The playbook has no file output. Its chat handoff gives
 problem and success criteria, the chosen approach and trade-offs, first milestone, deferred scope,
 dependencies and open questions, acceptance gates, and tests in implementation order.
 
-Select the read-only planning route before any state initialization. A path discussed as part
+Select the read-only planning route after reconciliation reports no active state, or when no
+Git repository exists yet. A path discussed as part
 of an idea is context for the plan. Apply path-based escalation when the user requests work
 that targets or changes the path. Requests to resume or change an active project use its
 existing route or the route for the new change.
@@ -43,7 +44,7 @@ mutation. The normal approval and verification rules still apply when implementa
 | Planning | `specs/project-planning/**` | | `architect_blueprint` |
 | Canonical rules | `specs/initialization-build/spec.md`, `docs/decisions.md`, `AGENTS.md`, `README.md` | Signed spec | `security_builder` |
 | Playbook and routing | `skills/rc-router/SKILL.md`, `skills/rc-router/playbooks/engineering/project-planning.md` | Canonical rules | `security_builder` |
-| Validation | `scripts/verify.mjs`, `tests/verify.test.mjs`, `scripts/rc-state.mjs`, `tests/rc-state.test.mjs`, `tests/install.test.mjs` | Canonical rules | `security_builder` |
+| Validation | `scripts/verify.mjs`, `tests/verify.test.mjs`, `scripts/rc-state.mjs`, `tests/rc-state.test.mjs`, `tests/rc-log.test.mjs`, `tests/install.test.mjs` | Canonical rules | `security_builder` |
 
 Update the canonical inventory and add a decision for the new routing boundary before changing
 the verifier. The shared playbook registry also feeds the state CLI. Reject init for
@@ -75,7 +76,7 @@ Existing persisted state and telemetry remain valid.
       can explain. The agent proposes measurable tests and acceptance gates before spec authoring.
 - [ ] Drafting, revising, and approving the direction create no repository files or runtime state
       and launch no implementation. Direct state init for the planning route is rejected before
-      writes. A request to save authorizes only the agreed spec handoff.
+      writes. The telemetry CLI rejects a planning row without appending anything. A request to save authorizes only the agreed spec handoff.
 - [ ] Requests to change an active project route through the normal project workflows.
 - [ ] Source verification, installation dry-run and hermetic tests pass with the expanded
       inventory. Installed distribution includes the playbook beneath the existing router skill.
