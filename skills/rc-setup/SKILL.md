@@ -13,7 +13,7 @@ invokes_scripts:
 
 ## Single Job
 
-Prove that this machine can run rcstack as its profiles describe: every capability resolves to a live model, every builder has a reachable independent reviewer, and every harness link points at the installed dist.
+Prove that this machine can run rcstack as its profiles describe: every primary/chain capability, configured paired model, external companion, and independent reviewer is checked with explicit availability evidence, and every harness link points at the installed dist.
 
 ## When to Use
 
@@ -43,18 +43,43 @@ Prove that this machine can run rcstack as its profiles describe: every capabili
    `~/.rcstack/dist/defaults/profiles/<profile>.yaml`. Report the differences; never overwrite a
    machine-local profile.
 4. **Discover live models.** In T3 Code, call `orchestrator_capabilities` once per thread (use the
-   ACP shell bridge when the orchestration tools are absent). In a standalone CLI harness there is
-   nothing to discover: report `degraded_single_harness` and skip to step 7.
-5. **Resolve every binding.** For each capability in each profile, match `driver_kind` to a live
-   provider and `model` to a live catalog id: names are equal after lowercasing and dropping every
-   non-alphanumeric character, compared with the live label, the live id, or the provider display
-   name followed by the label. Check that each `options` key exists for that model. Walk
-   `secondary` and `fallback` the same way. Mark each as resolved, unavailable, or resolved through
-   its chain.
+   ACP shell bridge when the orchestration tools are absent). When catalog discovery is unavailable
+   (such as in a standalone CLI harness or a failed discovery call), report
+   `degraded_single_harness` and still run steps 5 through 7: mark every catalog-dependent primary,
+   `secondary`, `fallback`, `paired`, and `review_matrix` binding as `unverified` (never
+   `unavailable`, because discovery could not check them), and still check configured external
+   `companion` dependencies against observable evidence in the current environment.
+5. **Resolve every binding and configured dependency.** For each capability in each profile, check
+   and report three categories separately so a resolved primary or fallback never masks a missing or
+   unchecked companion or paired model:
+   - **Primary model and fallback chain (`secondary`, `fallback`):** match `driver_kind` to a live
+     provider and `model` to a live catalog id: names are equal after lowercasing and dropping every
+     non-alphanumeric character, compared with the live label, the live id, or the provider display
+     name followed by the label. Check that each configured `options` key and value is supported for
+     that model. Walk `secondary` and `fallback` the same way. Mark each capability's primary/chain
+     status as `resolved`, `resolved through chain`, `unavailable` (catalog queried and no matching
+     provider, model, and supported options were present), or `unverified` (catalog discovery
+     unavailable).
+   - **Configured `paired` models:** check and report every `paired` binding separately by profile,
+     capability, and configured model name, even when the primary or fallback resolves. A `paired`
+     model is `available` only when live discovery shows a matching `driver_kind`, matching `model`,
+     and supported `options` (naming the matched live provider and catalog id as evidence). Mark it
+     `unavailable` when discovery succeeded and no matching provider, model, or options exist, and
+     `unverified` when catalog discovery is unavailable.
+   - **Configured external `companion` dependencies (`driver_kind: "external"`):** check and report
+     every `companion` separately by profile, capability, and configured name; a resolved primary,
+     `secondary`, `fallback`, or `paired` model never satisfies an external companion. A companion
+     is `available` only with observed evidence of the corresponding capability in the current
+     environment (such as a live MCP server/tool, CLI binary, or configured integration exposing that
+     capability), and the report must identify that exact evidence and whether it came from the live
+     environment or a supplied inventory fixture. Mark it `unavailable` when the relevant check
+     directly observes its absence (naming what was checked and found absent), and `unverified` when
+     the dependency cannot be checked in the current environment (naming what evidence is missing).
 6. **Prove reviewer reachability.** For every builder model in `review_matrix`, resolve its
-   `primary` (and `tier1_primary`) and `fallback` reviewers, plus `default_fallback`. Flag any
-   builder whose reviewers are all unreachable: Tier 2 and Tier 3 work built by it cannot reach
-   its assurance floor on this machine.
+   `primary` (and `tier1_primary`) and `fallback` reviewers, plus `default_fallback`. Mark each
+   reviewer `available`, `unavailable`, or `unverified` (when catalog discovery is unavailable).
+   Flag any builder whose reviewers are all unreachable or unverified: Tier 2 and Tier 3 work built
+   by it cannot reach its assurance floor on this machine without a verified independent reviewer.
 7. **Check harness links.** For each of `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`,
    `~/.gemini/skills`, and `~/.cursor/skills`, and each of the five skills, the entry must be a
    symlink to `~/.rcstack/dist/skills/<skill>`. Report missing links, links pointing anywhere else
@@ -63,12 +88,21 @@ Prove that this machine can run rcstack as its profiles describe: every capabili
    installer, which the human starts. Never replace a non-symlink, never edit files under
    `~/.rcstack/dist/`, and never write a provider instance id into a profile.
 9. **Print the setup report:** install metadata, one line per profile (valid or the error), the
-   resolution table, reviewer reachability, link status, and the exact next action for each problem.
+   primary/chain resolution table, a separate table of configured `paired` models and external
+   `companion` dependencies (each naming profile, capability, dependency role and name, status
+   `available` / `unavailable` / `unverified`, and the exact evidence observed or missing, noting
+   live environment vs. fixture), reviewer reachability, link status, and the exact next action for
+   each `unavailable` or `unverified` item.
 
 ## Definition of Done
 
 - Every machine-local profile passed `verify.mjs --profile`, or its failure was reported verbatim.
-- Every capability binding is marked resolved, resolved through its chain, or unavailable.
-- Every builder model has a reachable reviewer that is not itself, or the gap is flagged.
+- Every capability's primary/chain binding is marked `resolved`, `resolved through chain`,
+  `unavailable`, or `unverified`.
+- Every configured `paired` model and external `companion` is reported separately by name as
+  `available`, `unavailable`, or `unverified`, naming the observed evidence or what could not be
+  checked.
+- Every builder model has a reachable reviewer that is not itself, or the `unavailable`/`unverified`
+  gap is flagged.
 - All 25 harness links were checked against `~/.rcstack/dist/skills/<skill>`.
 - Nothing under `~/.rcstack/` or any harness directory was changed without explicit approval.
