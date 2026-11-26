@@ -45,9 +45,19 @@ export function semanticErrors(event) {
   }
   const overlap = event.builders.filter((b) => event.reviewers.some((r) => sameModel(r, b)));
 
-  // reviewer != builder. An overlap is only legitimate when the run was honestly flagged degraded,
-  // or when several builders cross-reviewed each other so nobody reviewed only their own work.
-  if (overlap.length > 0 && !event.degraded_single_harness) {
+  // reviewer != builder. Degraded runs had no independent reviewer at all, so reviewers and audit
+  // counts must be empty; on audited runs, overlap is only legitimate when several builders
+  // cross-reviewed each other so nobody reviewed only their own work.
+  if (event.degraded_single_harness) {
+    if (event.reviewers.length > 0) {
+      errors.push('degraded_single_harness run must have empty reviewers (no independent audit ran)');
+    }
+    for (const field of ['audit_accepted', 'audit_dismissed']) {
+      if (Object.keys(event[field]).length > 0) {
+        errors.push(`degraded_single_harness run must have empty ${field} (no independent audit ran)`);
+      }
+    }
+  } else if (overlap.length > 0) {
     if (event.builders.length === 1) {
       errors.push(`self-review: "${overlap[0]}" is the sole builder and is also listed as a reviewer (reviewer != builder)`);
     } else if (!independentlyReviewed(event)) {
@@ -75,9 +85,11 @@ export function semanticErrors(event) {
     errors.push(`playbook "${event.playbook}" belongs to rcstack-${playbook.domain}, not ${event.profile}`);
   }
 
-  for (const field of ['audit_accepted', 'audit_dismissed']) {
-    for (const model of Object.keys(event[field])) {
-      if (!event.reviewers.some((r) => sameModel(r, model))) errors.push(`${field} counts findings for "${model}", which is not listed in reviewers`);
+  if (!event.degraded_single_harness) {
+    for (const field of ['audit_accepted', 'audit_dismissed']) {
+      for (const model of Object.keys(event[field])) {
+        if (!event.reviewers.some((r) => sameModel(r, model))) errors.push(`${field} counts findings for "${model}", which is not listed in reviewers`);
+      }
     }
   }
 
@@ -93,7 +105,14 @@ export function semanticErrors(event) {
 export function validateEvent(event, schema) {
   if (!isPlainObject(event)) return ['$: the telemetry payload must be a JSON object'];
   const errors = validateSchema(event, schema);
-  return errors.length > 0 ? errors : semanticErrors(event);
+  if (errors.length === 0) return semanticErrors(event);
+  // If every property passed shape/type checks and only a root cross-field rule failed,
+  // return the specific semantic errors instead of a generic shape mismatch.
+  if (errors.length === 1 && errors[0] === '$: must match at least one allowed shape') {
+    const semantic = semanticErrors(event);
+    if (semantic.length > 0) return semantic;
+  }
+  return errors;
 }
 
 /** Append one line. Refuses to follow a symlink, and repairs a missing trailing newline first. */
