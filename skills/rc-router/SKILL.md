@@ -145,8 +145,9 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
    ```
 
    - **Open:** `rc-state.mjs init --repo <repo> --profile <profile> --playbook <playbook>
-     --tier <n> --goal "<one line>"`. The floor comes from the playbook and tier;
-     `--required-assurance <A>` can raise it, never lower it.
+     --tier <n> --goal "<one line>"`. Pass the playbook name without the domain prefix.
+     For `engineering/feature-build`, use `--profile rcstack-engineering --playbook feature-build`.
+     The playbook and tier set the minimum floor. Use `--required-assurance <A>` to raise it.
    - **Move:** `rc-state.mjs transition --repo <repo> --to <PHASE> --expected-rev <rev>`. A
      revision conflict means another writer moved the state: re-read it with `rc-state.mjs show`
      and decide again; never retry blindly. `BLOCKED` needs `--blocker "<reason>"` and returns
