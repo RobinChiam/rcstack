@@ -47,8 +47,12 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
 `~/.rcstack/dist/skills/rc-router/playbooks/<domain>/<playbook>.md`. Run scripts with `node`.
 
 1. **Load context.**
-   - Pick the profile by domain, then read `~/.rcstack/profiles/<profile>.yaml`. If it is missing,
-     fall back to `~/.rcstack/dist/defaults/profiles/<profile>.yaml` and say so.
+   - Pick the domain, then select the routing file in this order: local
+     `~/.rcstack/profiles/rcstack-main.yaml`, the legacy local file for that domain, and
+     `~/.rcstack/dist/defaults/profiles/rcstack-main.yaml`. Report when you use shipped defaults.
+     Use `node ~/.rcstack/dist/scripts/verify.mjs --profile <file> --domain <domain>` to obtain
+     the validated effective profile. Stop if validation fails. Use its logical profile ID
+     in routing plans, playbooks, task state, and telemetry.
    - Read `~/.rcstack/dist/rules/<domain>.md` and apply it for the whole run.
    - Read the target repository's `AGENTS.md` and `docs/decisions.md`. Repo law outranks this skill.
    - Leave out of context every path git ignores (`git check-ignore -q <path>` exits `0`) and

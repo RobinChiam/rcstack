@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.1 — 2026-11-26
+
+- Consolidate model routing into `rcstack-main.yaml` with shared defaults and domain overrides.
+- Validate each effective domain and preserve existing machine-local profiles on upgrades.
+- Install a tagged GitHub Release from one Bash script with a pinned archive digest.
+
 ## 0.2.0 — 2026-11-26
 
 ### Added

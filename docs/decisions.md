@@ -360,3 +360,28 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
 - **Guardrail:** Verify accepts additional documentation and still rejects missing or malformed
   decisions and symbolic links in the owned tree. The installer stages its existing selected
   source directories.
+
+## DEC-022 — One routing file expands into the three logical profiles
+
+- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Decision:** Ship `profiles/rcstack-main.yaml`. A model catalog and common policy feed three
+  domain projections with the original IDs. Each domain can replace whole capability bindings
+  and its tier capability order. On upgrades the router keeps using legacy local settings if
+  the user has no consolidated local file.
+- **Rejected Alternative:** Replacing the three logical IDs together with the template files.
+  The IDs are used by playbooks, saved task state and telemetry.
+- **Guardrail:** The verifier validates the consolidated shape and checks all three projections
+  against the existing domain schema and reviewer invariants. Legacy files still validate.
+
+## DEC-023 — Standalone installers use verified tagged release packages
+
+- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Decision:** Generate a standalone installer and archive from a verified release commit. The
+  script downloads its exact GitHub Release asset, verifies the pinned digest, and invokes the
+  local promoter against the verified source in temporary storage.
+- **Rejected Alternative:** Cloning a branch on the target or downloading an unpinned script
+  from main. Either can change the content a fixed release installs.
+- **Guardrail:** A digest mismatch stops before promotion. The local promoter and its dry-run
+  keep their existing destination checks. Release metadata records the verified commit.

@@ -963,7 +963,12 @@ export function checkProfileInvariants(profile) {
     }
   }
 
-  // Portable descriptors only: nothing machine-specific may be checked in or seeded.
+  return [...errors, ...profilePortabilityErrors(profile)];
+}
+
+// Portable descriptors only: nothing machine-specific may be checked in or seeded.
+function profilePortabilityErrors(profile) {
+  const errors = [];
   (function scan(node, at) {
     if (Array.isArray(node)) node.forEach((x, i) => scan(x, `${at}[${i}]`));
     else if (isPlainObject(node)) {
@@ -990,6 +995,75 @@ export function checkProfileText(text, schema) {
   const errors = validateSchema(profile, schema);
   if (errors.length === 0) errors.push(...checkProfileInvariants(profile));
   return { profile: errors.length === 0 ? profile : null, errors };
+}
+
+/** Check a routing file and expand it to the logical profiles consumed by rcstack. */
+export function checkProfileDocument(text, schema) {
+  let document;
+  try {
+    document = parseYaml(text);
+  } catch (err) {
+    return { profiles: {}, errors: [`YAML: ${err.message}`] };
+  }
+  if (document?.schema_version !== '2.0') {
+    const errors = validateSchema(document, schema);
+    if (errors.length === 0) errors.push(...checkProfileInvariants(document));
+    return { profiles: errors.length === 0 ? { [document.profile]: document } : {}, errors };
+  }
+  if (!schema.$defs?.main_profile) return { profiles: {}, errors: ['schema has no consolidated profile definition'] };
+  const errors = validateNode(document, schema.$defs.main_profile, schema, '$');
+  errors.push(...profilePortabilityErrors(document.models));
+  if (errors.length > 0) return { profiles: {}, errors };
+
+  const resolve = (alias, at) => {
+    if (Object.hasOwn(document.models, alias)) return document.models[alias];
+    errors.push(`${at}: unknown model alias "${alias}"`);
+    return {};
+  };
+  const bindings = (values, at) => Object.fromEntries(Object.entries(values).map(([capability, value]) => {
+    const here = `${at}.${capability}`;
+    const { primary, exclusive, ...chain } = value;
+    const binding = { ...resolve(primary, `${here}.primary`) };
+    for (const [slot, alias] of Object.entries(chain)) binding[slot] = resolve(alias, `${here}.${slot}`);
+    if (exclusive !== undefined) binding.exclusive = exclusive;
+    return [capability, binding];
+  }));
+
+  const common = bindings(document.capabilities, '$.capabilities');
+  const fallback = resolve(document.review_matrix.default_fallback, '$.review_matrix.default_fallback').model;
+  const reviewers = new Map([['default_fallback', fallback]]);
+  for (const [builder, entry] of Object.entries(document.review_matrix)) {
+    if (builder === 'default_fallback') continue;
+    const at = `$.review_matrix.${builder}`;
+    const name = resolve(builder, at).model;
+    const expanded = { fallback };
+    for (const [slot, alias] of Object.entries(entry)) expanded[slot] = resolve(alias, `${at}.${slot}`).model;
+    if (reviewers.has(name)) errors.push(`${at}: duplicate reviewer matrix key "${name}"`);
+    reviewers.set(name, expanded);
+  }
+
+  const profiles = {};
+  for (const domain of DOMAINS) {
+    const selected = document.domains[domain];
+    const profile = {
+      schema_version: '1.0',
+      profile: selected.profile_id,
+      domain,
+      description: selected.description,
+      invariants: document.invariants,
+      tier3_path_patterns: document.tier3_path_patterns,
+      capabilities: { ...common, ...bindings(selected.capabilities, `$.domains.${domain}.capabilities`) },
+      review_matrix: Object.fromEntries(reviewers),
+      risk_tiers: Object.fromEntries(Object.entries(document.risk_tiers).map(([tier, policy]) => [
+        tier, { ...policy, default_capabilities: selected.default_capabilities[tier] },
+      ])),
+    };
+    const domainErrors = validateSchema(profile, schema);
+    if (domainErrors.length === 0) domainErrors.push(...checkProfileInvariants(profile));
+    errors.push(...domainErrors.map((message) => `${domain}: ${message}`));
+    profiles[profile.profile] = profile;
+  }
+  return { profiles: errors.length === 0 ? profiles : {}, errors };
 }
 
 /** Every concrete model name a profile binds or lists as a reviewer. */
@@ -1432,10 +1506,9 @@ function loadJson(root, rel) {
 }
 
 function checkProfiles(root, r) {
-  const profiles = {};
   r.check(
-    'S2 profiles/ holds exactly schema.json and the 3 profile templates',
-    exactEntries(root, 'profiles', ['schema.json', ...PROFILE_NAMES.map((n) => `${n}.yaml`)], 'file'),
+    'S2 profiles/ holds exactly schema.json and rcstack-main.yaml',
+    exactEntries(root, 'profiles', ['schema.json', 'rcstack-main.yaml'], 'file'),
   );
   const schema = loadJson(root, 'profiles/schema.json');
   if (schema.value !== null) {
@@ -1446,23 +1519,16 @@ function checkProfiles(root, r) {
     }
   }
   r.check('S2 profiles/schema.json is valid JSON Schema this validator fully enforces', schema.errors);
-  for (const name of PROFILE_NAMES) {
-    const rel = `profiles/${name}.yaml`;
-    const text = read(root, rel);
-    let errors = ['missing'];
-    if (text !== null && schema.errors.length > 0) errors = ['cannot validate: profiles/schema.json is unusable'];
-    else if (text !== null) {
-      const result = checkProfileText(text, schema.value);
-      errors = result.errors;
-      if (result.profile && result.profile.profile !== name) {
-        errors.push(`profile "${result.profile.profile}" does not match the file name`);
-      } else if (result.profile) {
-        profiles[name] = result.profile;
-      }
-    }
-    r.check(`S2 ${rel} parses (strict YAML), satisfies the schema, and keeps reviewer != builder`, errors);
+  const rel = 'profiles/rcstack-main.yaml';
+  const text = read(root, rel);
+  const result = text === null ? { profiles: {}, errors: ['missing'] }
+    : schema.errors.length > 0 ? { profiles: {}, errors: ['cannot validate: profiles/schema.json is unusable'] }
+    : checkProfileDocument(text, schema.value);
+  if (result.errors.length === 0 && Object.keys(result.profiles).length !== DOMAINS.length) {
+    result.errors.push('expected the consolidated profile with all three domains');
   }
-  return profiles;
+  r.check(`S2 ${rel} parses (strict YAML) and all three domains satisfy the profile and reviewer rules`, result.errors);
+  return result.profiles;
 }
 
 function checkContracts(root, r) {
@@ -1748,19 +1814,20 @@ function sliceThree(root, r, { profiles, modelNames }) {
     r.check(`S3 ${rel} passes node --check`, isFile(root, rel) ? run(process.execPath, ['--check', path.join(root, rel)]) : ['missing']);
   }
 
-  const installer = 'adapters/install.sh';
-  // Only a real file inside the checkout is examined and handed to bash.
-  const st = isFile(root, installer) ? lstat(path.join(root, installer)) : null;
-  r.check('S3 adapters/ holds exactly install.sh', exactEntries(root, 'adapters', ['install.sh'], 'file'));
-  r.check(`S3 ${installer} is executable, strict-mode bash, and passes bash -n`, [
-    ...(st?.isFile()
+  const adapterNames = ['install.sh', 'release-install.sh', 'build-release.sh'];
+  r.check('S3 adapters/ holds exactly the installer, release template, and release builder', exactEntries(root, 'adapters', adapterNames, 'file'));
+  for (const name of adapterNames) {
+    const rel = `adapters/${name}`;
+    // Only a real file inside the checkout is examined and handed to bash.
+    const st = isFile(root, rel) ? lstat(path.join(root, rel)) : null;
+    r.check(`S3 ${rel} is executable, strict-mode bash, and passes bash -n`, st?.isFile()
       ? [
           st.mode & 0o111 ? '' : 'is not executable (chmod +x)',
-          /^set -euo pipefail$/m.test(read(root, installer) ?? '') ? '' : 'does not run under `set -euo pipefail`',
-          ...run('bash', ['-n', path.join(root, installer)]),
+          /^set -euo pipefail$/m.test(read(root, rel) ?? '') ? '' : 'does not run under `set -euo pipefail`',
+          ...run('bash', ['-n', path.join(root, rel)]),
         ]
-      : ['missing']),
-  ]);
+      : ['missing']);
+  }
 
   r.check('S3 tests/ holds exactly the 5 hermetic suites', exactEntries(root, 'tests', TEST_FILES, 'file'));
 
@@ -1768,7 +1835,7 @@ function sliceThree(root, r, { profiles, modelNames }) {
   for (const [name, profile] of Object.entries(profiles)) {
     for (const pattern of profile.tier3_path_patterns) {
       if (/[*?]/.test(pattern) || !/^(?:adapters|scripts|profiles|contracts|skills|rules|tests|docs)\//.test(pattern)) continue;
-      if (entryKind(root, pattern) === null) tier3.push(`profiles/${name}.yaml tier3_path_patterns names ${pattern}, which does not exist`);
+      if (entryKind(root, pattern) === null) tier3.push(`profiles/rcstack-main.yaml (${name}) tier3_path_patterns names ${pattern}, which does not exist`);
     }
   }
   r.check('S3 cross-references across skills, playbooks, contracts, scripts, profiles and docs resolve', [
@@ -1816,6 +1883,7 @@ function runSlices(root, slice, r) {
 /** Validate one profile file (used by rc-setup against machine-local profiles). */
 export function runProfileCheck({ profilePath, schemaPath }) {
   const r = new Report();
+  r.profiles = {};
   let schema = null;
   const schemaErrors = [];
   try {
@@ -1828,7 +1896,9 @@ export function runProfileCheck({ profilePath, schemaPath }) {
   if (schemaErrors.length === 0) {
     let errors;
     try {
-      errors = checkProfileText(fs.readFileSync(profilePath, 'utf8'), schema).errors;
+      const result = checkProfileDocument(fs.readFileSync(profilePath, 'utf8'), schema);
+      errors = result.errors;
+      r.profiles = result.profiles;
     } catch (err) {
       errors = [err.message];
     }
@@ -1862,12 +1932,13 @@ function printReport(r, { quiet, label }) {
 
 const USAGE = `Usage:
   node scripts/verify.mjs [--slice=1|2|3] [--root <dir>] [--include-ignored] [--quiet]
-  node scripts/verify.mjs --profile <file.yaml> [--schema <schema.json>] [--quiet]
+  node scripts/verify.mjs --profile <file.yaml> [--domain <engineering|study|research>] [--schema <schema.json>] [--quiet]
   node scripts/verify.mjs --specs <dir> [--include-ignored] [--quiet]
 
   --slice=N   1 = foundation; 2 = + profiles, contracts, rules, rc-router, playbooks; 3 = everything (default)
   --root      repository to validate (default: the checkout containing this script)
   --profile   validate a single profile file instead of the repository
+  --domain    with --profile, print the validated domain projection as JSON
   --schema    profile schema for --profile (default: profiles/schema.json or defaults/profiles/schema.json)
   --specs     validate one feature-local specs directory (any repository) instead of this repository
   --include-ignored  also judge paths that git ignores (default: untracked ignored paths are skipped)
@@ -1875,7 +1946,7 @@ const USAGE = `Usage:
 Exit status: 0 on a full pass, 1 on any failure or usage error.`;
 
 export function main(argv) {
-  const opts = { slice: null, quiet: false, includeIgnored: false, root: null, profile: null, schema: null, specs: null };
+  const opts = { slice: null, quiet: false, includeIgnored: false, root: null, profile: null, domain: null, schema: null, specs: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     const eq = arg.indexOf('=');
@@ -1896,6 +1967,7 @@ export function main(argv) {
       else if (flag === '--slice') opts.slice = value();
       else if (flag === '--root') opts.root = value();
       else if (flag === '--profile') opts.profile = value();
+      else if (flag === '--domain') opts.domain = value();
       else if (flag === '--schema') opts.schema = value();
       else if (flag === '--specs') opts.specs = value();
       else throw new Error(`unknown argument "${arg}"`);
@@ -1916,6 +1988,10 @@ export function main(argv) {
     console.error(`verify: --profile cannot be combined with --slice or --include-ignored\n${USAGE}`);
     return 1;
   }
+  if (opts.domain !== null && (opts.profile === null || !DOMAINS.includes(opts.domain))) {
+    console.error('verify: --domain requires --profile and one of engineering, study or research');
+    return 1;
+  }
   if (opts.specs !== null) {
     if (opts.specs.trim() === '') {
       console.error(`verify: --specs needs a directory\n${USAGE}`);
@@ -1933,6 +2009,19 @@ export function main(argv) {
     const defaults = [path.join(root, 'profiles/schema.json'), path.join(root, 'defaults/profiles/schema.json')];
     const schemaPath = opts.schema ?? defaults.find((p) => fs.existsSync(p)) ?? defaults[0];
     const r = runProfileCheck({ profilePath: path.resolve(opts.profile), schemaPath: path.resolve(schemaPath) });
+    if (opts.domain !== null) {
+      if (!r.ok) {
+        for (const failure of r.failures) for (const error of failure.errors) console.error(error);
+        return 1;
+      }
+      const profile = r.profiles[`rcstack-${opts.domain}`];
+      if (!profile) {
+        console.error(`verify: profile has no ${opts.domain} domain`);
+        return 1;
+      }
+      console.log(JSON.stringify(profile, null, 2));
+      return 0;
+    }
     printReport(r, { quiet: opts.quiet, label: 'verify --profile' });
     return r.ok ? 0 : 1;
   }
