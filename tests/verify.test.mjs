@@ -423,8 +423,9 @@ describe('repository validation', () => {
 
   test('accepts additional documentation alongside the required decisions log', () => {
     const root = copyRepo();
-    write(root, 'docs/operator-guide.md', '# Operator guide\n');
-    write(root, 'docs/reference/terms.md', '# Terms\n');
+    fs.writeFileSync(path.join(root, 'docs/operator-guide.md'), '# Operator guide\n');
+    fs.mkdirSync(path.join(root, 'docs/reference'));
+    fs.writeFileSync(path.join(root, 'docs/reference/terms.md'), '# Terms\n');
     assert.equal(failures(root), '');
     fs.rmSync(path.join(root, 'docs/decisions.md'));
     assert.match(failures(root, 1), /required file docs\/decisions\.md/);
