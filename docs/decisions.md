@@ -332,3 +332,30 @@ deleted: a changed decision gets a new entry and the old one is marked `Supersed
 - **Guardrail:** `skills/rc-setup/SKILL.md` requires separate reporting and the
   available/unavailable/unverified distinction for every configured `paired` model and `companion`
   dependency, while `scripts/verify.mjs` enforces the skill contract and model-agnosticism.
+
+## DEC-020 — Initial project planning is a read-only engineering playbook
+
+- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Decision:** Register `engineering/project-planning` at Tier 0/A0. The user chooses the first
+  milestone and agrees to observable outcomes and acceptance checks in chat. Saving a spec and
+  implementing a milestone each require an explicit request for that action.
+- **Rejected Alternative:** Using the feature-building workflow for an exploratory conversation.
+  It assumes a feature is already selected and opens task state before the user has agreed on
+  the project outcome.
+- **Guardrail:** The router selects the planning conversation before state initialization. The
+  verifier pins its canonical name, profile, tier and floor. The state CLI rejects direct init
+  for the planning playbook and the telemetry schema lists only telemetry-producing routes.
+
+## DEC-021 — The docs directory can hold guides and reference material
+
+- **Date:** 2026-11-26
+- **Status:** Accepted
+- **Decision:** Amend DEC-015 to open `docs/` to additional files and subdirectories.
+  `docs/decisions.md` remains required, and rcstack continues to read and validate the decision
+  log. The owned-tree rules still apply. Feature specs live under `specs/`.
+- **Rejected Alternative:** Extending the fixed allowlist as each guide is added. That makes
+  ordinary documentation work depend on changes to the verifier.
+- **Guardrail:** Verify accepts additional documentation and still rejects missing or malformed
+  decisions and symbolic links in the owned tree. The installer stages its existing selected
+  source directories.

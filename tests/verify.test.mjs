@@ -415,11 +415,19 @@ describe('repository validation', () => {
     }, /skills exists but is not a directory/, 1);
   });
 
-  test('fails on a forbidden root entry and on a stray file in docs/', () => {
+  test('fails on forbidden root entries', () => {
     expectFailure((root) => fs.writeFileSync(path.join(root, 'spec.md'), '# stray\n'), /spec\.md must not exist at the repository root/, 1);
     // No spec lives at the root any more, not even a copy of the system spec.
     expectFailure((root) => fs.copyFileSync(path.join(root, SYSTEM_SPEC), path.join(root, 'SPEC.md')), /SPEC\.md must not exist at the repository root/, 1);
-    expectFailure((root) => fs.writeFileSync(path.join(root, 'docs/plan.md'), 'x\n'), /docs\/plan\.md is not part of the system spec's tree/, 1);
+  });
+
+  test('accepts additional documentation alongside the required decisions log', () => {
+    const root = copyRepo();
+    write(root, 'docs/operator-guide.md', '# Operator guide\n');
+    write(root, 'docs/reference/terms.md', '# Terms\n');
+    assert.equal(failures(root), '');
+    fs.rmSync(path.join(root, 'docs/decisions.md'));
+    assert.match(failures(root, 1), /required file docs\/decisions\.md/);
   });
 
   test('prose that merely looks like a path does not break the cross-reference check', () => {
@@ -1535,8 +1543,9 @@ describe('shipped profiles match the system spec, section 3.3', () => {
     for (const domain of Object.keys(profiles)) assert.deepEqual(profiles[domain].review_matrix, expected, domain);
   });
 
-  test('the canonical playbook table has 12 entries across 5 skills', () => {
-    assert.equal(PLAYBOOKS.length, 12);
+  test('the canonical playbook table has 13 entries across 5 skills', () => {
+    assert.equal(PLAYBOOKS.length, 13);
+    assert.deepEqual(PLAYBOOKS.find((p) => p.name === 'project-planning'), { domain: 'engineering', name: 'project-planning', tier: 0, assurance: 'A0' });
     assert.equal(APPROVED_SKILLS.length, 5);
     for (const pb of PLAYBOOKS) {
       assert.match(spec, new RegExp(`\`${pb.name}\` \\(\`T${pb.tier}\`, \`${pb.assurance}\`\\)`), pb.name);

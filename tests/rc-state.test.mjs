@@ -166,11 +166,21 @@ describe('init', () => {
     assert.match(run(f, 'init', '--profile', 'rcstack-engineering', '--playbook', 'feature-build', '--tier', '2', '--goal', 'again').stderr, /STATE_EXISTS/);
     const g = fixture();
     assert.match(run(g, 'init', '--profile', 'rcstack-study', '--playbook', 'feature-build', '--tier', '2', '--goal', 'x').stderr, /belongs to rcstack-engineering/);
-    assert.match(run(g, 'init', '--profile', 'rcstack-engineering', '--playbook', 'nope', '--tier', '2', '--goal', 'x').stderr, /not one of the 12 playbooks/);
+    assert.match(run(g, 'init', '--profile', 'rcstack-engineering', '--playbook', 'nope', '--tier', '2', '--goal', 'x').stderr, /unknown playbook/);
     assert.match(run(g, 'init', '--profile', 'rcstack-engineering', '--playbook', 'feature-build', '--tier', '9', '--goal', 'x').stderr, /--tier must be an integer in 0\.\.3/);
     assert.match(run(g, 'init', '--profile', 'rcstack-engineering', '--playbook', 'feature-build', '--tier', '2').stderr, /init needs --goal/);
     assert.match(run(g, 'init', '--profile', 'rcstack-engineering', '--playbook', 'feature-build', '--tier', '2', '--goal', 'x', '--to', 'SHIPPED').stderr, /unknown flag "--to" for init/);
     assert.equal(fs.existsSync(g.runtime), false, 'a rejected init creates nothing');
+  });
+
+  test('rejects project planning at any tier before creating task state', () => {
+    const f = fixture();
+    for (const tier of ['0', '1', '2', '3']) {
+      const result = run(f, 'init', '--profile', 'rcstack-engineering', '--playbook', 'project-planning', '--tier', tier, '--goal', 'x');
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /project-planning runs without task state/);
+    }
+    assert.equal(fs.existsSync(f.runtime), false);
   });
 
   test('cannot lower an assurance floor or run a playbook below its tier', () => {

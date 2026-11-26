@@ -21,12 +21,12 @@ Binding rules for every agent or human changing this repository. The system spec
 ## Layout Invariants
 
 - `skills/` holds exactly 5 directories: `rc-router`, `rc-setup`, `rc-init`, `rc-doctor`, `rc-retro`.
-- The 12 playbooks plus `TEMPLATE.md` live only under `skills/rc-router/playbooks/`, split into
-  `engineering/` (7), `study/` (3), and `research/` (2). No `playbooks/` at the root.
-- `docs/`, `scripts/`, `contracts/`, `profiles/`, `rules/`, `adapters/` and `tests/` are closed
-  sets fixed by the system spec's tree; adding a skill, playbook, script, or contract is a spec
-  change. The root is open: a custom top-level entry (`.archive/`, ...) is never judged, and
-  untracked git-ignored paths are skipped, except by the installer's check (DEC-015).
+- The 13 playbooks plus `TEMPLATE.md` live only under `skills/rc-router/playbooks/`, split into
+  `engineering/` (8), `study/` (3), and `research/` (2). No `playbooks/` at the root.
+- `docs/` permits more documentation and requires a valid `decisions.md`.
+- `scripts/`, `contracts/`, `profiles/`, `rules/`, `adapters/` and `tests/` are closed
+  sets fixed by the system spec. Adding a skill, playbook, script, or contract changes that spec.
+  The root is open. Custom entries are never judged. The installer alone checks ignored, untracked paths (DEC-015).
 - `specs/` holds every spec, the system spec included, and no spec lives anywhere else. Every
   directory under it contains a `spec.md`, so a sub-spec sits inside its parent spec's directory,
   with the feature's other documents (`requirements.md`, `planning.md`, ...) beside it.

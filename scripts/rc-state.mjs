@@ -686,7 +686,8 @@ function cmdInit(flags) {
   }
   if (!PROFILE_NAMES.includes(flags['--profile'])) fail('USAGE', `--profile must be one of ${PROFILE_NAMES.join(', ')}`);
   const playbook = PLAYBOOKS.find((p) => p.name === flags['--playbook']);
-  if (!playbook) fail('USAGE', `--playbook "${flags['--playbook']}" is not one of the 12 playbooks`);
+  if (!playbook) fail('USAGE', `--playbook "${flags['--playbook']}" is an unknown playbook`);
+  if (playbook.name === 'project-planning') fail('USAGE', 'project-planning runs without task state');
   if (`rcstack-${playbook.domain}` !== flags['--profile']) {
     fail('USAGE', `playbook ${playbook.name} belongs to rcstack-${playbook.domain}, not ${flags['--profile']}`);
   }

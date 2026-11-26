@@ -58,7 +58,8 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
    - If the repository has a `specs/` directory, find the spec directory the request belongs to
      and read its `spec.md` and the `spec.md` of every parent directory, outermost first. A parent
      spec constrains its sub-specs.
-   - Run `node ~/.rcstack/dist/scripts/rc-state.mjs reconcile --repo <repo>`. Exit `2` means
+   - For an initial project planning request, proceed to classification with read-only context.
+     For other work, run `node ~/.rcstack/dist/scripts/rc-state.mjs reconcile --repo <repo>`. Exit `2` means
      drift: **git beats state**. Report the drift, trust `git status` and `git log`, and continue
      from what git shows. When active state exists, read it with `rc-state.mjs show --json` and
      load the profile, domain rules, and playbook selected by that committed state on resume.
@@ -67,11 +68,19 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
 2. **Classify and route.** Assign all four before any work starts.
    - **Profile:** `rcstack-engineering` for software changes, `rcstack-study` for learning,
      `rcstack-research` for investigations and viability questions.
+   - **Initial project planning:** if the user wants to shape a new project, select
+     `engineering/project-planning` under `rcstack-engineering` at Tier 0/A0. Resolve only
+     `architect_blueprint`, show the routing plan with the chat handoff as its exit gate, and
+     follow the playbook in chat. Skip state initialization, builder and reviewer dispatch,
+     spec writes, receipts, and telemetry. Potential paths are planning context. Classify
+     actual file changes when requested. On an explicit spec-only request, save the agreed
+     milestone under the repo's spec rules and stop. Route feature additions, plan changes
+     for projects underway, and implementation requests through the applicable delivery route.
    - **Risk tier:** the highest row that applies.
 
      | Tier | Use when | Floor |
      | :--- | :--- | :--- |
-     | 0 | Read-only lookup or explanation; nothing changes | `A0` |
+     | 0 | Read-only lookup, explanation, or initial project planning | `A0` |
      | 1 | Fast, easily reverted iteration: prototypes, UI polish, practice sessions | `A1` |
      | 2 | Anything that ships or that others rely on: features, fixes, refactors, reports | `A2` |
      | 3 | Auth, sandboxing, containers, symlinks, infrastructure, schemas, installers | `A3` |
@@ -88,6 +97,7 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
 
      | Request | Playbook |
      | :--- | :--- |
+     | Shape an initial project idea in chat | `engineering/project-planning` |
      | New capability with acceptance criteria | `engineering/feature-build` |
      | Something is broken | `engineering/bug-root-cause` |
      | Prototype, UI tweak, exploratory sketch | `engineering/vibe-iterate` |
@@ -188,7 +198,8 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
 ## Definition of Done
 
 - The 3-line routing plan was printed before any work, with profile, tier, floor, and playbook.
-- `reviewer != builder` was proven from the live catalog, or the run is flagged
+- When independent review is required, `reviewer != builder` was proven from the live
+  catalog, or the run is flagged
   `degraded_single_harness` with an `ASSURANCE GAP`.
 - Tier 2-3: every phase change went through `rc-state.mjs`, every Work Receipt was admitted by
   `rc-receipt.mjs`, and no state path left the main thread.
@@ -197,5 +208,5 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
   directory under `specs/`, and nowhere else.
 - Achieved assurance is at least the floor, or the `ASSURANCE GAP` banner is on the Review Map and
   in telemetry.
-- The Review Map was delivered, the telemetry row was appended by `rc-log.mjs`, and the state was
-  closed.
+- For tiers requiring a Review Map, telemetry or state, deliver the map, append the row
+  with `rc-log.mjs`, and close the state as applicable.

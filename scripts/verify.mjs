@@ -41,6 +41,7 @@ export const PLAYBOOKS = Object.freeze([
   { domain: 'engineering', name: 'refactor-pinned', tier: 2, assurance: 'A2' },
   { domain: 'engineering', name: 'ship-and-babysit', tier: 2, assurance: 'A2' },
   { domain: 'engineering', name: 'garden-maintenance', tier: 2, assurance: 'A2' },
+  { domain: 'engineering', name: 'project-planning', tier: 0, assurance: 'A0' },
   { domain: 'study', name: 'topic-deep-dive', tier: 2, assurance: 'A2' },
   { domain: 'study', name: 'recall-and-drill', tier: 1, assurance: 'A1' },
   { domain: 'study', name: 'socratic-session', tier: 1, assurance: 'A0' },
@@ -1391,7 +1392,6 @@ function sliceOne(root, r) {
     .filter(([name]) => rootNames.includes(name))
     .map(([name, why]) => `${name} must not exist at the repository root (${why})`);
   r.check('S1 the repository root holds no forbidden entry (custom top-level entries are allowed)', forbidden);
-  if (lstat(path.join(root, 'docs'))) r.check('S1 docs/ holds exactly decisions.md', exactEntries(root, 'docs', ['decisions.md'], 'file'));
   if (lstat(path.join(root, 'specs'))) {
     const ignoredSpecs = new Set([...(IGNORED.get(root) ?? [])].filter((p) => p.startsWith('specs/')).map((p) => p.slice('specs/'.length)));
     r.check(

@@ -8,7 +8,7 @@ library of portable skills, and deterministic gates that decide when work is don
 `delegate_task`), and it degrades to honest single-harness execution in standalone CLIs
 (Claude Code, Codex CLI, Antigravity, Cursor).
 
-Version `0.1.0-beta`. Requires Node.js `>=20`, `bash`, and `git`. No npm dependencies.
+Version `0.2.0`. Requires Node.js `>=20`, `bash`, and `git`. No npm dependencies.
 `specs/initialization-build/spec.md` is the canonical system specification; `AGENTS.md` is the repo law.
 
 ## How it works
@@ -19,7 +19,7 @@ You ask `/rcstack` for something. `rc-router` then:
    `docs/decisions.md`, the feature's spec directory under `specs/`, and any task state
    (reconciled against git; git always wins).
 2. **Classifies** — picks a profile, a risk tier (`0`-`3`), the assurance floor that tier demands,
-   and one of 12 playbooks.
+   and one of 13 playbooks.
 3. **Resolves live models** — maps each abstract capability in the profile to a model that is
    actually reachable, and proves the reviewer is not the builder before dispatching anything.
 4. **Prints a 3-line routing plan**, then drives the playbook through its exit gate.
@@ -37,6 +37,17 @@ Skills and playbooks never name a model. Only `profiles/*.yaml` binds capabiliti
 Harness skill directories (`~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`,
 `~/.gemini/skills`, `~/.cursor/skills`) symlink only to `~/.rcstack/dist/skills/<skill>`, never
 into this checkout. Editing the source cannot change a live session; only an install can.
+
+## Project planning
+
+Ask `rc-router` to help shape a new project idea. The planning playbook helps you model the
+problem, select the first milestone, define done, and agree on tests in chat. Ask to save the
+agreed milestone when you want a spec written. Ask separately when you want implementation
+to begin.
+
+Use `docs/` for guides and reference material. Record durable choices in
+[the decisions log](docs/decisions.md) and add an entry under **Unreleased** in the
+[changelog](CHANGELOG.md) for each change merged to `main`.
 
 ## Feature specs
 
@@ -99,6 +110,7 @@ Router-only. Never invoked directly.
 
 | Domain | Playbook | Tier | Floor |
 | :--- | :--- | :--- | :--- |
+| engineering | `project-planning` | 0 | A0 |
 | engineering | `feature-build` | 2 | A2 |
 | engineering | `bug-root-cause` | 2 | A2 |
 | engineering | `vibe-iterate` | 1 | A1 |
