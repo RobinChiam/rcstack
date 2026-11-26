@@ -77,10 +77,11 @@ bash adapters/install.sh --dry-run    # print the plan; changes nothing
 bash adapters/install.sh              # promote into ~/.rcstack/dist and link the 5 skills
 ```
 
-The installer verifies the source first, refuses to overwrite any non-symlink in a harness
-directory, swaps `dist/` atomically, seeds `~/.rcstack/profiles/*.yaml` only when missing, and
-initializes the `~/.rcstack/runtime/` shadow git repo. Re-running it is safe. Edit your routing in
-`~/.rcstack/profiles/`; the installer never touches those files again.
+The installer verifies the source first and refuses to overwrite any non-symlink in a harness
+directory. During an upgrade, it uses an atomic exchange when available. Otherwise, it moves the
+old installation aside and then moves the replacement into place, so `dist/` can be briefly absent.
+It seeds `~/.rcstack/profiles/*.yaml` only when missing and initializes the `~/.rcstack/runtime/`
+shadow git repo. Re-running it is safe. Edit your routing in `~/.rcstack/profiles/`.
 
 ## Skills
 
