@@ -145,21 +145,21 @@ describe('--from-local promote', () => {
     const rc = path.join(home, '.rcstack');
     const res = install(home, ['--from-local']);
     assert.equal(res.status, 0, res.out);
-    assert.match(res.stdout, /install: OK: rcstack-beta 0\.1\.0-beta promoted to .*\/\.rcstack\/dist; 25 harness link\(s\) point there/);
+    assert.match(res.stdout, /install: OK: rcstack-beta 0\.2\.0 promoted to .*\/\.rcstack\/dist; 25 harness link\(s\) point there/);
 
     assert.deepEqual(fs.readdirSync(rc).sort(), ['dist', 'install-meta.json', 'profiles', 'runtime']);
     assert.ok(fs.existsSync(path.join(ROOT, 'specs', 'feature-local-specs', 'spec.md')), 'the source has feature-local specs');
     assert.deepEqual(fs.readdirSync(path.join(rc, 'dist')).sort(), ['contracts', 'defaults', 'rules', 'scripts', 'skills'], 'specs/, docs/ and tests/ are source-only');
     assert.deepEqual(fs.readdirSync(path.join(rc, 'dist', 'skills')).sort(), [...SKILLS].sort());
     assert.deepEqual(fs.readdirSync(path.join(rc, 'dist', 'defaults', 'profiles')).sort(), [...PROFILES, 'schema.json'].sort());
-    assert.equal(fs.readdirSync(path.join(rc, 'dist', 'skills', 'rc-router', 'playbooks', 'engineering')).length, 7);
-    for (const rel of ['rules/study.md', 'contracts/work-receipt.md', 'scripts/rc-state.mjs', 'skills/rc-router/SKILL.md']) {
+    assert.equal(fs.readdirSync(path.join(rc, 'dist', 'skills', 'rc-router', 'playbooks', 'engineering')).length, 8);
+    for (const rel of ['rules/study.md', 'contracts/work-receipt.md', 'scripts/rc-state.mjs', 'skills/rc-router/SKILL.md', 'skills/rc-router/playbooks/engineering/project-planning.md']) {
       assert.equal(fs.readFileSync(path.join(rc, 'dist', rel), 'utf8'), fs.readFileSync(path.join(ROOT, rel), 'utf8'), rel);
     }
 
     const meta = JSON.parse(fs.readFileSync(path.join(rc, 'install-meta.json'), 'utf8'));
     assert.deepEqual(Object.keys(meta), ['version', 'commit_sha', 'source', 'dirty', 'installed_at']);
-    assert.equal(meta.version, '0.1.0-beta');
+    assert.equal(meta.version, '0.2.0');
     assert.equal(meta.source, 'local');
     assert.match(meta.commit_sha, /^(?:[0-9a-f]{40}|unknown)$/);
     assert.equal(typeof meta.dirty, 'boolean');
@@ -453,7 +453,11 @@ describe('refusals', () => {
     assert.equal(res.status, 0, res.out);
     const rc = path.join(home, '.rcstack');
     assert.deepEqual(fs.readdirSync(path.join(rc, 'dist')).sort(), ['contracts', 'defaults', 'rules', 'scripts', 'skills']);
-    assert.equal(snapshot(rc).some((entry) => /refunds|requirements\.md|planning\.md/.test(entry)), false, 'no spec document reached the installed runtime');
+    assert.equal(
+      snapshot(rc).some((entry) => /(?:^|\/)(?:refunds\/|(?:requirements|planning)\.md \[)/.test(entry)),
+      false,
+      'no spec document reached the installed runtime',
+    );
     assertLinks(home);
   });
 

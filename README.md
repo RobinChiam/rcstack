@@ -8,7 +8,7 @@ library of portable skills, and deterministic gates that decide when work is don
 `delegate_task`), and it degrades to honest single-harness execution in standalone CLIs
 (Claude Code, Codex CLI, Antigravity, Cursor).
 
-Version `0.1.0-beta`. Requires Node.js `>=20`, `bash`, and `git`. No npm dependencies.
+Version `0.2.0`. Requires Node.js `>=20`, `bash`, and `git`. No npm dependencies.
 `specs/initialization-build/spec.md` is the canonical system specification; `AGENTS.md` is the repo law.
 
 ## How it works
@@ -19,7 +19,7 @@ You ask `/rcstack` for something. `rc-router` then:
    `docs/decisions.md`, the feature's spec directory under `specs/`, and any task state
    (reconciled against git; git always wins).
 2. **Classifies** — picks a profile, a risk tier (`0`-`3`), the assurance floor that tier demands,
-   and one of 12 playbooks.
+   and one of 13 playbooks.
 3. **Resolves live models** — maps each abstract capability in the profile to a model that is
    actually reachable, and proves the reviewer is not the builder before dispatching anything.
 4. **Prints a 3-line routing plan**, then drives the playbook through its exit gate.
@@ -37,6 +37,17 @@ Skills and playbooks never name a model. Only `profiles/*.yaml` binds capabiliti
 Harness skill directories (`~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`,
 `~/.gemini/skills`, `~/.cursor/skills`) symlink only to `~/.rcstack/dist/skills/<skill>`, never
 into this checkout. Editing the source cannot change a live session; only an install can.
+
+## Project planning
+
+Ask `rc-router` to help shape a new project idea. The planning playbook helps you model the
+problem, select the first milestone, define done, and agree on tests in chat. Ask to save the
+agreed milestone when you want a spec written. Ask separately when you want implementation
+to begin.
+
+Use `docs/` for guides and reference material. Record durable choices in
+[the decisions log](docs/decisions.md) and add an entry under **Unreleased** in the
+[changelog](CHANGELOG.md) for each change merged to `main`.
 
 ## Feature specs
 
@@ -77,17 +88,18 @@ bash adapters/install.sh --dry-run    # print the plan; changes nothing
 bash adapters/install.sh              # promote into ~/.rcstack/dist and link the 5 skills
 ```
 
-The installer verifies the source first, refuses to overwrite any non-symlink in a harness
-directory, swaps `dist/` atomically, seeds `~/.rcstack/profiles/*.yaml` only when missing, and
-initializes the `~/.rcstack/runtime/` shadow git repo. Re-running it is safe. Edit your routing in
-`~/.rcstack/profiles/`; the installer never touches those files again.
+The installer verifies the source first and refuses to overwrite any non-symlink in a harness
+directory. During an upgrade, it uses an atomic exchange when available. Otherwise, it moves the
+old installation aside and then moves the replacement into place, so `dist/` can be briefly absent.
+It seeds `~/.rcstack/profiles/*.yaml` only when missing and initializes the `~/.rcstack/runtime/`
+shadow git repo. Re-running it is safe. Edit your routing in `~/.rcstack/profiles/`.
 
 ## Skills
 
 | Skill | Job |
 | :--- | :--- |
 | `rc-router` | Front door: classify, route, resolve live models, gate delivery |
-| `rc-setup` | Discover live models, validate machine-local profiles, check harness symlinks |
+| `rc-setup` | Discover live models, paired models, and companions; validate profiles; check harness links |
 | `rc-init` | Bootstrap a target repo with opt-in modules |
 | `rc-doctor` | Diagnose a repo, then apply approved atomic cures |
 | `rc-retro` | Turn telemetry into concrete profile and skill tuning diffs |
@@ -98,6 +110,7 @@ Router-only. Never invoked directly.
 
 | Domain | Playbook | Tier | Floor |
 | :--- | :--- | :--- | :--- |
+| engineering | `project-planning` | 0 | A0 |
 | engineering | `feature-build` | 2 | A2 |
 | engineering | `bug-root-cause` | 2 | A2 |
 | engineering | `vibe-iterate` | 1 | A1 |
@@ -111,6 +124,10 @@ Router-only. Never invoked directly.
 | research | `viability-spike` | 2 | A2 |
 | research | `research-report` | 2 | A2 |
 
+`study/socratic-session` at default Tier 1/`A0` is the sole playbook exempt from `require_verify`.
+Escalating any active task to Tier 3 atomically persists the `rcstack-engineering` / `security-critical`
+(`T3`/`A3`) route.
+
 ## Assurance ladder
 
 Assurance is computed from evidence by `scripts/rc-receipt.mjs`. Nobody rates their own confidence.
@@ -122,7 +139,8 @@ Assurance is computed from evidence by `scripts/rc-receipt.mjs`. Nobody rates th
 | `A2` Behavioral | `A1` plus tests on the changed paths | `behavioral` passed and an independent audit has 0 open Blockers |
 | `A3` Hardened | `A2` plus edge-case, security, or runtime proof | `hardened` passed and a cross-family audit has 0 open Blockers or Majors |
 
-Tier `N` requires at least `A<N>`. Work that cannot reach its floor ships only under an explicit
+Tier `N` normally requires at least `A<N>`. The Socratic session uses its listed A0 floor at Tier 1.
+Work that cannot reach its floor ships only under an explicit
 `ASSURANCE GAP` banner on the Review Map, and the gap is logged.
 
 ## Default model stack
@@ -152,7 +170,8 @@ Reviewers come from `review_matrix`, keyed by whoever built the work:
 | Claude Fable 5.2 | Gemini 4 Neon | Cursor Grok 4.7 |
 
 Cursor Grok 4.7 reviews only; it is never bound to a builder capability. `reviewer != builder`
-cannot be switched off by any profile.
+cannot be switched off by any profile; degraded single-harness runs log `reviewers: []` with empty
+audit counts and cap at `A1`.
 
 ## Deterministic tools
 

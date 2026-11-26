@@ -21,12 +21,12 @@ Binding rules for every agent or human changing this repository. The system spec
 ## Layout Invariants
 
 - `skills/` holds exactly 5 directories: `rc-router`, `rc-setup`, `rc-init`, `rc-doctor`, `rc-retro`.
-- The 12 playbooks plus `TEMPLATE.md` live only under `skills/rc-router/playbooks/`, split into
-  `engineering/` (7), `study/` (3), and `research/` (2). No `playbooks/` at the root.
-- `docs/`, `scripts/`, `contracts/`, `profiles/`, `rules/`, `adapters/` and `tests/` are closed
-  sets fixed by the system spec's tree; adding a skill, playbook, script, or contract is a spec
-  change. The root is open: a custom top-level entry (`.archive/`, ...) is never judged, and
-  untracked git-ignored paths are skipped, except by the installer's check (DEC-015).
+- The 13 playbooks plus `TEMPLATE.md` live only under `skills/rc-router/playbooks/`, split into
+  `engineering/` (8), `study/` (3), and `research/` (2). No `playbooks/` at the root.
+- `docs/` permits more documentation and requires a valid `decisions.md`.
+- `scripts/`, `contracts/`, `profiles/`, `rules/`, `adapters/` and `tests/` are closed
+  sets fixed by the system spec. Adding a skill, playbook, script, or contract changes that spec.
+  The root is open. Custom entries are never judged. The installer alone checks ignored, untracked paths (DEC-015).
 - `specs/` holds every spec, the system spec included, and no spec lives anywhere else. Every
   directory under it contains a `spec.md`, so a sub-spec sits inside its parent spec's directory,
   with the feature's other documents (`requirements.md`, `planning.md`, ...) beside it.
@@ -38,7 +38,7 @@ Binding rules for every agent or human changing this repository. The system spec
   `profiles/*.yaml` binds them; `README.md` and the system spec document the default stack.
 - Name an abstract capability instead (`primary_builder`, `independent_reviewer`, ...) and let
   `rc-router` resolve it through the active profile.
-- `reviewer != builder` is absolute. No profile, fallback, or shortcut may permit self-review.
+- `reviewer != builder` is absolute; no profile, fallback, or degraded run permits self-review (DEC-017).
 
 ## Authoring Rules
 
@@ -50,7 +50,7 @@ Binding rules for every agent or human changing this repository. The system spec
   are fixed by the system spec, section 2.4.
 - A playbook must honour every gate its default tier sets in the profile (`require_spec`,
   `require_state_file`, `require_verify`, `require_receipt_gate`, `require_cross_model_audit`,
-  `require_review_map`, `log_telemetry`).
+  `require_review_map`, `log_telemetry`); only `study/socratic-session` (T1/A0) is exempt from `require_verify` (DEC-018).
 - Every `## Do NOT Use When` names the skill or playbook that owns the adjacent task.
 - Profiles and frontmatter use the strict YAML subset: 2-space indent, block mappings and
   sequences, double-quoted model names and globs; `[]` is the only flow form. No tabs, anchors,
@@ -60,7 +60,7 @@ Binding rules for every agent or human changing this repository. The system spec
 
 ## Tier 3 Paths
 
-Edits to these paths are security-critical and route through the `security-critical` playbook:
+Edits to these paths route through `rcstack-engineering` / `security-critical` (Tier 3 escalation persists this route, DEC-016):
 
 - `adapters/install.sh`
 - `scripts/verify.mjs`

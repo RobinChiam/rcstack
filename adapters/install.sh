@@ -12,7 +12,7 @@
 # changes anything. --dry-run prints the plan and mutates nothing.
 set -euo pipefail
 
-RCSTACK_VERSION="0.1.0-beta"
+RCSTACK_VERSION="0.2.0"
 SKILLS="rc-router rc-setup rc-init rc-doctor rc-retro"
 HARNESSES=".agents .claude .codex .gemini .cursor"
 STAGED_DIRS="rules profiles contracts scripts skills"

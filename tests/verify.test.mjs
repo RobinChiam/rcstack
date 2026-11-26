@@ -17,6 +17,8 @@ import {
   parseSections,
   checkProfileText,
   checkSpecsTree,
+  checkPlaybookGates,
+  isGateExempt,
   SYSTEM_SPEC,
   OWNED_DIRS,
   FORBIDDEN_ROOT_ENTRIES,
@@ -413,11 +415,20 @@ describe('repository validation', () => {
     }, /skills exists but is not a directory/, 1);
   });
 
-  test('fails on a forbidden root entry and on a stray file in docs/', () => {
+  test('fails on forbidden root entries', () => {
     expectFailure((root) => fs.writeFileSync(path.join(root, 'spec.md'), '# stray\n'), /spec\.md must not exist at the repository root/, 1);
     // No spec lives at the root any more, not even a copy of the system spec.
     expectFailure((root) => fs.copyFileSync(path.join(root, SYSTEM_SPEC), path.join(root, 'SPEC.md')), /SPEC\.md must not exist at the repository root/, 1);
-    expectFailure((root) => fs.writeFileSync(path.join(root, 'docs/plan.md'), 'x\n'), /docs\/plan\.md is not part of the system spec's tree/, 1);
+  });
+
+  test('accepts additional documentation alongside the required decisions log', () => {
+    const root = copyRepo();
+    fs.writeFileSync(path.join(root, 'docs/operator-guide.md'), '# Operator guide\n');
+    fs.mkdirSync(path.join(root, 'docs/reference'));
+    fs.writeFileSync(path.join(root, 'docs/reference/terms.md'), '# Terms\n');
+    assert.equal(failures(root), '');
+    fs.rmSync(path.join(root, 'docs/decisions.md'));
+    assert.match(failures(root, 1), /required file docs\/decisions\.md/);
   });
 
   test('prose that merely looks like a path does not break the cross-reference check', () => {
@@ -498,6 +509,99 @@ describe('repository validation', () => {
     expectFailure((root) => edit(root, PLAYBOOK, (t) => t.replace('  - contracts/spec.md\n', '  - contracts/plan.md\n')), /"contracts\/plan\.md" is not a known contracts\/\* path/, 2);
     expectFailure((root) => edit(root, PLAYBOOK, (t) => t.replace('  - independent_reviewer\n', '')), /require_cross_model_audit[\s\S]*independent_reviewer/, 2);
     expectFailure((root) => edit(root, PLAYBOOK, (t) => t.replaceAll('rc-receipt.mjs', 'the gate')), /require_receipt_gate[\s\S]*rc-receipt\.mjs/, 2);
+  });
+
+  test('enforces require_verify on ordinary Tier 1 playbooks and other gates on study/socratic-session', () => {
+    const socratic = 'skills/rc-router/playbooks/study/socratic-session.md';
+    const recall = 'skills/rc-router/playbooks/study/recall-and-drill.md';
+    const vibe = 'skills/rc-router/playbooks/engineering/vibe-iterate.md';
+
+    // Shipped socratic-session passes, while enabling another gate on Tier 1 still fails it.
+    assert.equal(failures(ROOT, 2), '');
+    expectFailure(
+      (root) => edit(root, 'profiles/rcstack-study.yaml', (t) => t.replace(/("1":[\s\S]*?)require_spec: false/, '$1require_spec: true')),
+      /playbook study\/socratic-session[\s\S]*profile gate require_spec \(Tier 1\): contracts must list contracts\/spec\.md/,
+      2,
+    );
+    expectFailure(
+      (root) => edit(root, 'profiles/rcstack-study.yaml', (t) => t.replace(/("1":[\s\S]*?)log_telemetry: false/, '$1log_telemetry: true')),
+      /playbook study\/socratic-session[\s\S]*profile gate log_telemetry \(Tier 1\): the workflow or exit gate must use `rc-log\.mjs`/,
+      2,
+    );
+
+    // Ordinary Tier 1 playbooks omitting verification fail require_verify, even if labeled A0.
+    expectFailure(
+      (root) => edit(root, recall, (t) => t.replaceAll('verify', 'check').replaceAll('Verify', 'Check')),
+      /playbook study\/recall-and-drill[\s\S]*profile gate require_verify \(Tier 1\): the workflow or exit gate must use `verify`/,
+      2,
+    );
+    expectFailure(
+      (root) => edit(root, vibe, (t) => t.replaceAll('verify', 'check').replaceAll('Verify', 'Check')),
+      /playbook engineering\/vibe-iterate[\s\S]*profile gate require_verify \(Tier 1\): the workflow or exit gate must use `verify`/,
+      2,
+    );
+    expectFailure(
+      (root) =>
+        edit(root, recall, (t) =>
+          t.replace('required_assurance: A1', 'required_assurance: A0').replaceAll('verify', 'check').replaceAll('Verify', 'Check'),
+        ),
+      /playbook study\/recall-and-drill[\s\S]*frontmatter required_assurance must be "A1"[\s\S]*profile gate require_verify \(Tier 1\)/,
+      2,
+    );
+
+    // Socratic escalated above its default Tier 1/A0 loses the require_verify exemption.
+    expectFailure(
+      (root) => edit(root, socratic, (t) => t.replace('default_tier: 1', 'default_tier: 2')),
+      /playbook study\/socratic-session[\s\S]*frontmatter default_tier must be 1[\s\S]*profile gate require_verify \(Tier 1\)/,
+      2,
+    );
+  });
+
+  test('an A0 label alone never qualifies a playbook for the require_verify exception', () => {
+    const socratic = { domain: 'study', name: 'socratic-session', tier: 1, assurance: 'A0' };
+    const otherA0 = { domain: 'study', name: 'recall-and-drill', tier: 1, assurance: 'A0' };
+    const engA0 = { domain: 'engineering', name: 'vibe-iterate', tier: 1, assurance: 'A0' };
+    const wrongDomain = { domain: 'engineering', name: 'socratic-session', tier: 1, assurance: 'A0' };
+    const escalated = { domain: 'study', name: 'socratic-session', tier: 2, assurance: 'A0' };
+    const raisedFloor = { domain: 'study', name: 'socratic-session', tier: 1, assurance: 'A1' };
+
+    assert.equal(isGateExempt('require_verify', socratic), true);
+    for (const flag of ['require_spec', 'require_state_file', 'require_receipt_gate', 'require_cross_model_audit', 'require_review_map', 'log_telemetry']) {
+      assert.equal(isGateExempt(flag, socratic), false, `socratic is not exempt from ${flag}`);
+    }
+    for (const pb of [otherA0, engA0, wrongDomain, escalated, raisedFloor]) {
+      assert.equal(isGateExempt('require_verify', pb), false, `${pb.domain}/${pb.name} T${pb.tier}/${pb.assurance}`);
+      const errs = checkPlaybookGates({
+        playbook: pb,
+        tierConfig: { require_verify: true },
+        contracts: [],
+        capabilities: ['vibe_executor'],
+        workflow: '1. Frame\n2. Close\n',
+      });
+      assert.match(errs.join('\n'), new RegExp(`profile gate require_verify \\(Tier ${pb.tier}\\): the workflow or exit gate must use \`verify\``));
+    }
+
+    // Canonical study/socratic-session T1/A0 skips only require_verify while other enabled gates still fire.
+    assert.deepEqual(
+      checkPlaybookGates({
+        playbook: socratic,
+        tierConfig: { require_verify: true },
+        contracts: [],
+        capabilities: ['vibe_executor'],
+        workflow: '1. Frame\n2. Close\n',
+      }),
+      [],
+    );
+    const otherGates = checkPlaybookGates({
+      playbook: socratic,
+      tierConfig: { require_verify: true, require_spec: true, log_telemetry: true },
+      contracts: [],
+      capabilities: ['vibe_executor'],
+      workflow: '1. Frame\n2. Close\n',
+    });
+    assert.equal(otherGates.length, 2);
+    assert.match(otherGates.join('\n'), /profile gate require_spec \(Tier 1\)/);
+    assert.match(otherGates.join('\n'), /profile gate log_telemetry \(Tier 1\)/);
   });
 
   test('fails when reviewer == builder anywhere in a review matrix', () => {
@@ -1440,8 +1544,9 @@ describe('shipped profiles match the system spec, section 3.3', () => {
     for (const domain of Object.keys(profiles)) assert.deepEqual(profiles[domain].review_matrix, expected, domain);
   });
 
-  test('the canonical playbook table has 12 entries across 5 skills', () => {
-    assert.equal(PLAYBOOKS.length, 12);
+  test('the canonical playbook table has 13 entries across 5 skills', () => {
+    assert.equal(PLAYBOOKS.length, 13);
+    assert.deepEqual(PLAYBOOKS.find((p) => p.name === 'project-planning'), { domain: 'engineering', name: 'project-planning', tier: 0, assurance: 'A0' });
     assert.equal(APPROVED_SKILLS.length, 5);
     for (const pb of PLAYBOOKS) {
       assert.match(spec, new RegExp(`\`${pb.name}\` \\(\`T${pb.tier}\`, \`${pb.assurance}\`\\)`), pb.name);

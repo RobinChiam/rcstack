@@ -7,7 +7,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { appendLine, semanticErrors, validateEvent, DEFAULT_SCHEMA } from '../scripts/rc-log.mjs';
-import { TELEMETRY_REQUIRED_FIELDS } from '../scripts/verify.mjs';
+import { TELEMETRY_REQUIRED_FIELDS, validateSchema } from '../scripts/verify.mjs';
 
 const SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../scripts/rc-log.mjs');
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'rcstack-log-'));
@@ -131,6 +131,25 @@ describe('append', () => {
 });
 
 describe('schema rejection', () => {
+  test('rejects project planning telemetry without creating a log', () => {
+    const file = tmpFile();
+    const planning = event({
+      playbook: 'project-planning',
+      risk_tier: 0,
+      required_assurance: 'A0',
+      achieved_assurance: 'A0',
+      reviewers: [],
+      audit_accepted: {},
+      audit_dismissed: {},
+      verify_attempts: 0,
+    });
+    const result = cli(['--file', file, '--json', JSON.stringify(planning)]);
+    assert.equal(result.status, 1);
+    assert.equal(result.json.status, 'REJECTED');
+    assert.match(result.json.errors.join('\n'), /\$\.playbook: must be one of/);
+    assert.equal(fs.existsSync(file), false);
+  });
+
   test('rejects a row missing any required field', () => {
     for (const field of TELEMETRY_REQUIRED_FIELDS) {
       const payload = event();
@@ -189,16 +208,58 @@ describe('reviewer != builder', () => {
     assert.equal(fs.existsSync(file), false);
   });
 
-  test('allows an honestly degraded single-harness run, but never at A2 or above', () => {
-    const degraded = { builders: ['Solo'], reviewers: ['Solo'], degraded_single_harness: true, audit_accepted: {}, audit_dismissed: {} };
-    assert.equal(errorsOf({ ...degraded, achieved_assurance: 'A1' }), '');
-    assert.match(errorsOf({ ...degraded, achieved_assurance: 'A2' }), /achieved_assurance A2 is impossible for a degraded_single_harness run/);
-    assert.match(errorsOf({ ...degraded, achieved_assurance: 'A3' }), /achieved_assurance A3 is impossible for a degraded_single_harness run/);
-    // A second reviewer does not launder a degraded self-review into an audited result.
-    const padded = { ...degraded, reviewers: ['Solo', 'Other'] };
-    assert.equal(errorsOf({ ...padded, achieved_assurance: 'A1' }), '');
-    assert.match(errorsOf({ ...padded, achieved_assurance: 'A2' }), /is impossible for a degraded_single_harness run/);
-    assert.match(errorsOf({ builders: ['Solo'], reviewers: ['Other'], degraded_single_harness: true, audit_accepted: {}, audit_dismissed: {}, achieved_assurance: 'A3' }), /tops out at A1/);
+  test('accepts honest degraded A0/A1 rows with empty reviewers and audit counts, and rejects reviewers, counts, or A2/A3', () => {
+    const honestDegraded = { builders: ['Solo'], reviewers: [], degraded_single_harness: true, audit_accepted: {}, audit_dismissed: {} };
+    assert.equal(errorsOf({ ...honestDegraded, achieved_assurance: 'A0' }), '');
+    assert.equal(errorsOf({ ...honestDegraded, achieved_assurance: 'A1' }), '');
+    assert.deepEqual(validateSchema(event({ ...honestDegraded, achieved_assurance: 'A0' }), SCHEMA), []);
+    assert.deepEqual(validateSchema(event({ ...honestDegraded, achieved_assurance: 'A1' }), SCHEMA), []);
+
+    // Reviewer identities on degraded runs are always rejected (self-review or any reviewer).
+    assert.match(errorsOf({ ...honestDegraded, reviewers: ['Solo'], achieved_assurance: 'A1' }), /degraded_single_harness run must have empty reviewers/);
+    assert.match(errorsOf({ ...honestDegraded, reviewers: ['Solo', 'Other'], achieved_assurance: 'A1' }), /degraded_single_harness run must have empty reviewers/);
+    assert.match(errorsOf({ ...honestDegraded, reviewers: ['Other'], achieved_assurance: 'A0' }), /degraded_single_harness run must have empty reviewers/);
+    assert.notEqual(validateSchema(event({ ...honestDegraded, reviewers: ['Solo'], achieved_assurance: 'A1' }), SCHEMA).length, 0);
+
+    // Non-empty audit counts on degraded runs are always rejected.
+    assert.match(errorsOf({ ...honestDegraded, audit_accepted: { Other: 1 }, achieved_assurance: 'A1' }), /degraded_single_harness run must have empty audit_accepted/);
+    assert.match(errorsOf({ ...honestDegraded, audit_dismissed: { Other: 0 }, achieved_assurance: 'A1' }), /degraded_single_harness run must have empty audit_dismissed/);
+    assert.notEqual(validateSchema(event({ ...honestDegraded, audit_accepted: { Other: 1 }, achieved_assurance: 'A1' }), SCHEMA).length, 0);
+
+    // A2 and A3 are impossible on degraded runs.
+    assert.match(errorsOf({ ...honestDegraded, achieved_assurance: 'A2' }), /achieved_assurance A2 is impossible for a degraded_single_harness run/);
+    assert.match(errorsOf({ ...honestDegraded, achieved_assurance: 'A3' }), /achieved_assurance A3 is impossible for a degraded_single_harness run/);
+    assert.notEqual(validateSchema(event({ ...honestDegraded, achieved_assurance: 'A2' }), SCHEMA).length, 0);
+  });
+
+  test('CLI rejects invalid degraded rows without altering existing log bytes, and appends valid rows intact', () => {
+    const file = tmpFile();
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    // Pre-existing historical degraded row (with legacy reviewer attribution) stays untouched.
+    const historicalLine = JSON.stringify(event({ builders: ['Solo'], reviewers: ['Solo'], degraded_single_harness: true, audit_accepted: {}, audit_dismissed: {}, achieved_assurance: 'A1' }));
+    fs.writeFileSync(file, `${historicalLine}\n`);
+    const beforeBytes = fs.readFileSync(file);
+
+    const invalidCases = [
+      event({ builders: ['Solo'], reviewers: ['Solo'], degraded_single_harness: true, audit_accepted: {}, audit_dismissed: {}, achieved_assurance: 'A1' }),
+      event({ builders: ['Solo'], reviewers: [], degraded_single_harness: true, audit_accepted: { Other: 1 }, audit_dismissed: {}, achieved_assurance: 'A1' }),
+      event({ builders: ['Solo'], reviewers: [], degraded_single_harness: true, audit_accepted: {}, audit_dismissed: { Other: 2 }, achieved_assurance: 'A0' }),
+      event({ builders: ['Solo'], reviewers: [], degraded_single_harness: true, audit_accepted: {}, audit_dismissed: {}, achieved_assurance: 'A2' }),
+    ];
+    for (const bad of invalidCases) {
+      const res = cli(['--file', file, '--json', JSON.stringify(bad)]);
+      assert.equal(res.status, 1);
+      assert.equal(res.json.status, 'REJECTED');
+      assert.deepEqual(fs.readFileSync(file), beforeBytes, 'rejected degraded row preserves log bytes');
+    }
+
+    const honest = event({ builders: ['Solo'], reviewers: [], degraded_single_harness: true, audit_accepted: {}, audit_dismissed: {}, achieved_assurance: 'A1' });
+    const appended = cli(['--file', file, '--json', JSON.stringify(honest)]);
+    assert.equal(appended.status, 0, appended.stdout + appended.stderr);
+    const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0], historicalLine, 'earlier historical row stays intact');
+    assert.deepEqual(JSON.parse(lines[1]), honest);
   });
 
   test('sees through a different spelling of the same model', () => {

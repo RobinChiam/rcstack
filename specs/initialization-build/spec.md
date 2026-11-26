@@ -1,6 +1,6 @@
 # `rcstack-beta` Technical Specification (`specs/initialization-build/spec.md`)
 
-**Status:** Canonical v1-beta Specification (`0.1.0-beta`)  
+**Status:** Canonical System Specification (`0.2.0`)
 **Runtime Requirement:** Node.js `>=20` (ESM, zero third-party `npm` runtime dependencies; built-in `node:test`) + POSIX `bash` + `git`
 
 `rcstack-beta` is a personal multi-model agent operating system, portable skills library, and unified front-door router built natively for **T3 Code** (multi-provider orchestration via `orchestrator_capabilities` / `delegate_task` + ACP shell fallback) with graceful single-harness degradation in standalone CLIs (**Claude Code**, **Codex CLI**, **Antigravity**, **Cursor**).
@@ -17,7 +17,7 @@
 rcstack-beta/
 ├── README.md
 ├── AGENTS.md                                   # Repo law (<100 lines) + verify command for rcstack-beta
-├── docs/
+├── docs/                                      # Open to guides and reference material
 │   └── decisions.md                            # Evergreen Living Decisions Log for rcstack-beta
 ├── specs/                                      # Every spec, each in its own directory (section 1.D)
 │   ├── initialization-build/spec.md            # Canonical system specification (this document)
@@ -43,23 +43,24 @@ rcstack-beta/
 ├── skills/                                     # EXACTLY 5 top-level registered skills (ONLY these are symlinked)
 │   ├── rc-router/                              # [1/5] Unified front-door router (/rcstack)
 │   │   ├── SKILL.md
-│   │   └── playbooks/                          # EXACTLY 12 nested playbooks (+ TEMPLATE.md)
+│   │   └── playbooks/                          # EXACTLY 13 nested playbooks (+ TEMPLATE.md)
 │   │       ├── TEMPLATE.md
-│   │       ├── engineering/                    # 7 engineering playbooks
-│   │       │   ├── feature-build.md            # [1/12]
-│   │       │   ├── bug-root-cause.md           # [2/12]
-│   │       │   ├── vibe-iterate.md             # [3/12]
-│   │       │   ├── security-critical.md        # [4/12]
-│   │       │   ├── refactor-pinned.md          # [5/12]
-│   │       │   ├── ship-and-babysit.md         # [6/12]
-│   │       │   └── garden-maintenance.md       # [7/12]
+│   │       ├── engineering/                    # 8 engineering playbooks
+│   │       │   ├── feature-build.md            # [1/13]
+│   │       │   ├── bug-root-cause.md           # [2/13]
+│   │       │   ├── vibe-iterate.md             # [3/13]
+│   │       │   ├── security-critical.md        # [4/13]
+│   │       │   ├── refactor-pinned.md          # [5/13]
+│   │       │   ├── ship-and-babysit.md         # [6/13]
+│   │       │   ├── garden-maintenance.md       # [7/13]
+│   │       │   └── project-planning.md         # [8/13]
 │   │       ├── study/                          # 3 study playbooks
-│   │       │   ├── topic-deep-dive.md          # [8/12]
-│   │       │   ├── recall-and-drill.md         # [9/12]
-│   │       │   └── socratic-session.md         # [10/12]
+│   │       │   ├── topic-deep-dive.md          # [9/13]
+│   │       │   ├── recall-and-drill.md         # [10/13]
+│   │       │   └── socratic-session.md         # [11/13]
 │   │       └── research/                       # 2 research playbooks
-│   │           ├── viability-spike.md          # [11/12]
-│   │           └── research-report.md          # [12/12]
+│   │           ├── viability-spike.md          # [12/13]
+│   │           └── research-report.md          # [13/13]
 │   ├── rc-setup/SKILL.md                       # [2/5] Live T3 model discovery, profile validation & symlink sync
 │   ├── rc-init/SKILL.md                        # [3/5] Modular opt-in bootstrapper for target repos
 │   ├── rc-doctor/SKILL.md                      # [4/5] Diagnose -> Approved Atomic Cure repo gardener
@@ -179,8 +180,9 @@ invokes_scripts:
 ### 2.2 `rc-router` Execution Engine (`skills/rc-router/SKILL.md`)
 `rc-router` (`/rcstack`) is the single front-door orchestrator:
 1. **Load Context:** Read active profile from `~/.rcstack/profiles/<profile>.yaml` (fallback to `~/.rcstack/dist/defaults/profiles/`), `~/.rcstack/dist/rules/<domain>.md`, target repo `AGENTS.md` and `docs/decisions.md`, the spec directory the request belongs to under `specs/` (its `spec.md` and every parent `spec.md`), and run `rc-state.mjs reconcile` against `git status`/`git log` (**Git beats state**).
-2. **Classify & Route:** Assign Profile (`rcstack-engineering` | `rcstack-study` | `rcstack-research`), Risk Tier (`0`–`3`, auto-escalating to Tier 3 on `tier3_path_patterns` matches), Required Assurance Floor (`A0`–`A3`), and Playbook.
-3. **Discover Live Models:** In T3 Code, call `orchestrator_capabilities` once per thread (using ACP fallback if MCP tools are absent), map portable `driverKind` + `model` + `options` from the active profile, and verify `reviewer != builder` before dispatching. In standalone CLIs, degrade cleanly to single-harness local execution and flag `degraded_single_harness: true`.
+2. **Classify & Route:** Assign Profile (`rcstack-engineering` | `rcstack-study` | `rcstack-research`), Risk Tier (`0`–`3`, auto-escalating to Tier 3 on `tier3_path_patterns` matches and persisting `rcstack-engineering` / `security-critical`), Required Assurance Floor (`A0`–`A3`), and Playbook. On resume, load the profile and playbook selected by active committed state and observe the Tier 3 spec sign-off pause before continuing implementation.
+   - Route initial project planning to `engineering/project-planning` only when read-only reconciliation reports no active state or no Git repository exists yet. This route emits no spec, task state, receipt, or telemetry. An explicit request to save the agreed spec is a separate writing action under the repo rules, with its own tier and verification. Implementation requires a separate request. Direct lookups retain the lookup route.
+3. **Discover Live Models:** In T3 Code, call `orchestrator_capabilities` once per thread (using ACP fallback if MCP tools are absent), map portable `driverKind` + `model` + `options` from the active profile, and verify `reviewer != builder` before dispatching. In standalone CLIs, degrade cleanly to single-harness local execution and flag `degraded_single_harness: true` (logging `reviewers: []`, empty audit counts, and `achieved_assurance` capped at `A1`). `rc-setup` checks and reports configured `paired` models and external `companion` dependencies separately from primary/fallback chains, distinguishing observed availability, observed absence (`unavailable`), and missing check evidence (`unverified`).
 4. **Print 3-Line Routing Plan:**
    ```text
    Profile: <profile> | Tier: T<0-3> (Assurance Floor: A<0-3>) | Playbook: <domain>/<playbook>
@@ -200,7 +202,7 @@ invokes_scripts:
 
 ### 2.3 Nested Playbooks (`skills/rc-router/playbooks/<domain>/<playbook>.md`)
 
-Required YAML frontmatter (all 12 playbooks, excluding `TEMPLATE.md`):
+Required YAML frontmatter (all 13 playbooks, excluding `TEMPLATE.md`):
 ```yaml
 ---
 name: feature-build
@@ -229,7 +231,7 @@ contracts:
 3. `## Workflow Phases` — Numbered state-machine phases referencing abstract capabilities, contracts, and deterministic scripts (`rc-state.mjs`, `rc-receipt.mjs`, `rc-log.mjs`) with zero hardcoded model names.
 4. `## Exit Gate & Definition of Done` — Hard verification, assurance floor, audit, Review Map, and telemetry gates.
 
-### 2.4 Canonical 12 Playbooks
+### 2.4 Canonical 13 Playbooks
 - **`engineering/` (`rcstack-engineering`):**
   1. `feature-build` (`T2`, `A2`): state init → `systems_research` brief → `architect_blueprint` spec → `primary_builder` slices + `rc-receipt` → integrated `verify` → fresh-context cross-model audit → Review Map + `rc-log`.
   2. `bug-root-cause` (`T2`, `A2`): failing reproduction test first → isolate root cause (no symptom patches) → fix + `rc-receipt` → `verify` → cross-model audit → harden guardrail + Review Map + `rc-log`.
@@ -238,13 +240,14 @@ contracts:
   5. `refactor-pinned` (`T2`, `A2`): characterization tests pinning behavior → atomic structural steps → `verify` per step → cross-model audit → Review Map + `rc-log`.
   6. `ship-and-babysit` (`T2`, `A2`): final `verify` + unslop pass → PR body from Review Map → safe CI/review triage → close state + `rc-log`.
   7. `garden-maintenance` (`T2`, `A2`): invoke `rc-doctor` (`Diagnose` → approved atomic `Cure` commits) → prune stale `docs/decisions.md` → promote repeat mistakes into deterministic checks.
+  8. `project-planning` (`T0`, `A0`): `architect_blueprint` guides initial project planning in chat through problem modeling, a user-selected milestone, and tests and acceptance gates agreed before spec writing.
 - **`study/` (`rcstack-study`):**
-  8. `topic-deep-dive` (`T2`, `A2`): `deep_grounding` (ingest + curate citations) → `architect_blueprint` (note structure & study guide) → `systems_research` (first-principles walkthrough) → `independent_reviewer` (source/citation fact-audit).
-  9. `recall-and-drill` (`T1`, `A1`): active-recall flashcards, edge-case quizzes, spaced-repetition schedule (`primary_builder` / `vibe_executor`).
-  10. `socratic-session` (`T1`, `A0`): guided questioning & mental-model stress-testing without giving away answers prematurely (`vibe_executor`).
+  9. `topic-deep-dive` (`T2`, `A2`): `deep_grounding` (ingest + curate citations) → `architect_blueprint` (note structure & study guide) → `systems_research` (first-principles walkthrough) → `independent_reviewer` (source/citation fact-audit).
+  10. `recall-and-drill` (`T1`, `A1`): active-recall flashcards, edge-case quizzes, spaced-repetition schedule (`primary_builder` / `vibe_executor`).
+  11. `socratic-session` (`T1`, `A0`): guided questioning & mental-model stress-testing without giving away answers prematurely (`vibe_executor`). Sole canonical exception to `require_verify` at its default `T1`/`A0`, because it produces no checkable artifact.
 - **`research/` (`rcstack-research`):**
-  11. `viability-spike` (`T2`, `A2`): `deep_grounding` prior art → time-boxed throwaway prototype (`primary_builder` or `security_builder`) → `verify` → strengths, weaknesses, and failure modes report.
-  12. `research-report` (`T2`, `A2`): multi-source investigation (`deep_grounding` + `systems_research`) → `architect_blueprint` synthesis → adversarial devil's-advocate `independent_reviewer` critique → cited decision report + Review Map + `rc-log`.
+  12. `viability-spike` (`T2`, `A2`): `deep_grounding` prior art → time-boxed throwaway prototype (`primary_builder` or `security_builder`) → `verify` → strengths, weaknesses, and failure modes report.
+  13. `research-report` (`T2`, `A2`): multi-source investigation (`deep_grounding` + `systems_research`) → `architect_blueprint` synthesis → adversarial devil's-advocate `independent_reviewer` critique → cited decision report + Review Map + `rc-log`.
 
 ---
 
@@ -293,7 +296,7 @@ JSON Schema (Draft 2020-12) constraining:
 ### 3.4 Risk Tiers (`0`–`3`) × Deterministic Assurance Ladder (`A0`–`A3`)
 Assurance is **mechanically derived from evidence**, never LLM self-rated confidence:
 - **`A0` (Speculative — Tier 0 floor):** Reasoning/lookup only; no deterministic check ran.
-- **`A1` (Mechanical — Tier 1 floor):** Format + lint + static/type checks pass (exit `0`).
+- **`A1` (Mechanical — default Tier 1 floor, with the Socratic exception in section 2.4):** Format + lint + static/type checks pass (exit `0`).
 - **`A2` (Behavioral — Tier 2 floor):** `A1` + automated unit/integration tests covering changed paths pass + independent audit with `0` open `Blocker`s.
 - **`A3` (Hardened — Tier 3 floor):** `A2` + targeted edge-case/security/runtime proof + independent cross-family adversarial audit with `0` open `Blocker`s or `Major`s.
 
@@ -310,6 +313,7 @@ Assurance is **mechanically derived from evidence**, never LLM self-rated confid
    - **Header Bar** (Profile, Tier, **Achieved vs. Required Assurance** + explicit `ASSURANCE GAP` banner if short, slices, verify attempts), **Executive Delta** (3 bullets), **Risk-Ranked Reading Order** (`[HIGH]` → `[MED]` → `[SKIM]` with `file:line`), **Assumptions & Tradeoffs Checklist**, **Cross-Model Audit Ledger**, **Verification Matrix**, **Proposed `docs/decisions.md` Entry**.
 6. **`contracts/telemetry-event.schema.json`:** JSON Schema (`schema_version: 1`) for `~/.rcstack/runtime/telemetry.jsonl`:
    - Required fields: `schema_version` (`1`), `ts` (ISO-8601 UTC), `repo`, `branch`, `profile`, `playbook`, `risk_tier` (`0..3`), `required_assurance` (`A0..A3`), `achieved_assurance` (`A0..A3`), `builders` (non-empty string array), `reviewers` (string array), `degraded_single_harness` (boolean), `verify_attempts` (int `>= 0`), `audit_accepted` (object `<model>: int`), `audit_dismissed` (object `<model>: int`), `overridden` (boolean), `escalated_from_tier` (int `0..3` or `null`).
+   - Degraded single-harness rows (`degraded_single_harness: true`) MUST carry `reviewers: []`, empty `audit_accepted` and `audit_dismissed`, and `achieved_assurance` of `A0` or `A1`. Historical degraded rows remain readable as recorded and supply no independent reviewer evidence to `rc-retro`.
 7. **Evergreen Repo Truth (`docs/decisions.md`):**
    Every entry MUST include `Date`, `Status`, `Decision`, **`Rejected Alternative`**, and **`Guardrail`**.
 8. **Ephemeral Active Task State (`~/.rcstack/runtime/state/<repo-slug>/<branch-slug>.md`):**
@@ -323,15 +327,17 @@ All scripts under `scripts/` MUST be zero-dependency Node.js `>=20` ESM and expo
 
 ### 5.1 `scripts/verify.mjs`
 Supports `--slice=1`, `--slice=2`, or `--slice=3` (default `3`). Exits `0` on full pass, `1` on any error, printing `[PASS]`/`[FAIL]` diagnostics.
-- **Slice 1+ Checks:** `README.md`, `AGENTS.md`, `docs/decisions.md` (at least one `DEC-` entry with `Rejected Alternative:` + `Guardrail:`), `scripts/verify.mjs` exist; no top-level `playbooks/` directory; any directories under `skills/` are a strict subset of the approved 5 (`rc-router`, `rc-setup`, `rc-init`, `rc-doctor`, `rc-retro`). The system spec exists at `specs/initialization-build/spec.md`, the repository root holds no `playbooks`, `SPEC.md` or `spec.md` entry, and a `specs/` tree, when present, follows the feature-local layout of section 1.D (`--specs <dir>` runs that one check on any repository). Exact membership is enforced only inside the owned subtrees of the section 1.A tree; the root itself is open, so any other top-level entry (for example `.archive/`), tracked or not, is neither listed nor read. Paths that git ignores and does not track are skipped, as reported by `git ls-files --others --ignored --exclude-standard`; a tracked file is never skipped, and outside a git worktree nothing is. `--include-ignored` turns the skipping off, and `adapters/install.sh` always passes it, because it copies whole directories.
-- **Slice 2+ Checks:** `profiles/schema.json` valid JSON; all 3 `profiles/*.yaml` parse via strict zero-dep YAML parser (rejecting tabs/malformed indentation), satisfy `profiles/schema.json`, and pass the **`reviewer != builder` invariant**; all 6 `contracts/*` exist (`telemetry-event.schema.json` valid JSON); all 3 `rules/*.md` exist; `skills/rc-router/SKILL.md` passes skill contract + negative-boundary + zero-model-name checks; `skills/rc-router/playbooks/` contains `TEMPLATE.md` and ONLY the exact 12 approved playbooks, each passing frontmatter, `entry_mode === "router_only"`, verbatim `ROUTER-ONLY:` boundary, `## Do NOT Use When`, valid `required_capabilities` & `contracts` refs, and zero hardcoded model names.
+- **Slice 1+ Checks:** `README.md`, `AGENTS.md`, `docs/decisions.md` (at least one `DEC-` entry with `Rejected Alternative:` + `Guardrail:`), `scripts/verify.mjs` exist; no top-level `playbooks/` directory; any directories under `skills/` are a strict subset of the approved 5 (`rc-router`, `rc-setup`, `rc-init`, `rc-doctor`, `rc-retro`). The system spec exists at `specs/initialization-build/spec.md`, the repository root holds no `playbooks`, `SPEC.md` or `spec.md` entry, and a `specs/` tree, when present, follows the feature-local layout of section 1.D (`--specs <dir>` runs that one check on any repository). Exact membership is enforced inside the closed subtrees of the section 1.A tree. `docs/` permits additional files and subdirectories under the owned-tree rules, and `docs/decisions.md` remains required and validated. The root itself is open, so any other top-level entry (for example `.archive/`), tracked or not, is neither listed nor read. Paths that git ignores and does not track are skipped, as reported by `git ls-files --others --ignored --exclude-standard`; a tracked file is never skipped, and outside a git worktree nothing is. `--include-ignored` turns the skipping off, and `adapters/install.sh` always passes it, because it copies whole directories.
+- **Slice 2+ Checks:** `profiles/schema.json` valid JSON; all 3 `profiles/*.yaml` parse via strict zero-dep YAML parser (rejecting tabs/malformed indentation), satisfy `profiles/schema.json`, and pass the **`reviewer != builder` invariant**; all 6 `contracts/*` exist (`telemetry-event.schema.json` valid JSON); all 3 `rules/*.md` exist; `skills/rc-router/SKILL.md` passes skill contract + negative-boundary + zero-model-name checks; `skills/rc-router/playbooks/` contains `TEMPLATE.md` and ONLY the exact 13 approved playbooks, each passing frontmatter, `entry_mode === "router_only"`, verbatim `ROUTER-ONLY:` boundary, `## Do NOT Use When`, valid `required_capabilities` & `contracts` refs, profile tier-gate enforcement (with `study/socratic-session` at default `T1`/`A0` as the sole exception to `require_verify`, never by `A0` label alone), and zero hardcoded model names.
 - **Slice 3 (Full Default) Checks:** All 5 exact top-level skills exist and pass frontmatter, headings, negative boundaries, and zero-model-name checks; `scripts/rc-state.mjs`, `scripts/rc-receipt.mjs`, `scripts/rc-log.mjs` exist and pass `node --check`; `adapters/install.sh` exists, is executable (`chmod +x`), and passes `bash -n`; `tests/*.test.mjs` exist; all cross-references across skills, playbooks, contracts, scripts, and profiles resolve to real files.
 
 ### 5.2 `scripts/rc-state.mjs`
+The state CLI rejects initialization for `project-planning` before any runtime writes.
+
 Atomic single-writer state mutator + local shadow git controller (`--runtime-dir <path>` defaults to `~/.rcstack/runtime`):
 - Ensures `<runtime-dir>` is initialized as a local-only git repo (`git init` if missing, no remote configured).
 - Acquires an atomic lock (`mkdir` or exclusive `O_CREAT|O_EXCL` lockfile with stale-lock check), verifies optimistic revision (`--expected-rev N`), writes temp file + atomic `rename`, increments `rev: N -> N+1`, and creates a local shadow git commit (`state(<repo>/<branch>): <OLD_PHASE> -> <NEW_PHASE> (rev <N>, <Ax>)`).
-- Subcommands: `init`, `transition`, `show`, `reconcile` (compares state `head_sha` against live repo `git status`/`git rev-parse HEAD` — reporting drift where git beats state), `close` (`git rm` state file + commit on `SHIPPED`).
+- Subcommands: `init`, `transition` (where `--escalate-tier 3` atomically sets `profile: rcstack-engineering`, `playbook: security-critical`, `risk_tier: 3`, and `required_assurance: A3` in one shadow commit while preserving the first `escalated_from_tier`; lower-tier escalations and direct Tier 3 `init` retain their selected route; legacy committed states with `risk_tier: 3` and `escalated_from_tier` present the effective route on `show` without writing, persist it on the next successful mutation, and roll back failed commits to the original committed bytes), `show`, `reconcile` (compares state `head_sha` against live repo `git status`/`git rev-parse HEAD` — reporting drift where git beats state), `close` (`git rm` state file + commit on `SHIPPED`).
 
 ### 5.3 `scripts/rc-receipt.mjs`
 4-point deterministic Work Receipt admission gate (`--receipt <file|->`, `--repo <path>`, optional `--allowed-paths <glob,glob>`):
@@ -341,7 +347,7 @@ Atomic single-writer state mutator + local shadow git controller (`--runtime-dir
 4. **Mechanical Assurance Tagging:** Computes `A0` / `A1` / `A2` / `A3` strictly from verified evidence (`verify_exit_code === 0`, `checks_passed`, `audit_blockers`, `audit_majors`) and prints structured JSON admission output; exits `0` on `ADMITTED`, `1` on `REJECTED` with exact failure reasons.
 
 ### 5.4 `scripts/rc-log.mjs`
-Validates a JSON telemetry payload (`--json '<payload>'` or `stdin`) against `contracts/telemetry-event.schema.json` (plus rejects `reviewers` overlapping `builders` unless `degraded_single_harness: true` or multi-slice cross-pairing is valid — specifically ensuring no single-builder run logs that exact same sole builder as its only reviewer) and appends one compact JSONL line to `<runtime-dir>/telemetry.jsonl` (`--file <path>` override, `--dry-run` supported).
+Validates a JSON telemetry payload (`--json '<payload>'` or `stdin`) against `contracts/telemetry-event.schema.json` (plus rejects self-review where `reviewers` overlaps `builders` unless independent multi-builder cross-review covers every builder on a non-degraded run, rejects any `degraded_single_harness: true` row with non-empty `reviewers`, non-empty `audit_accepted`/`audit_dismissed`, or `achieved_assurance` above `A1`, and rejects unaudited `A2`/`A3` rows) and appends one compact JSONL line to `<runtime-dir>/telemetry.jsonl` (`--file <path>` override, `--dry-run` supported).
 
 ### 5.5 `adapters/install.sh`
 Idempotent POSIX `bash` promoter & harness linker (`set -euo pipefail`):
@@ -370,8 +376,8 @@ Build strictly in 3 sequential vertical slices. Verify each slice before advanci
 - **Slice 1 — Foundation & Validator First:**
   - Clean repo skeleton, `AGENTS.md`, `README.md`, `specs/initialization-build/spec.md`, initial `docs/decisions.md` (recording the 3-directory split, 5-skill layout, router-only playbooks, `A0–A3` assurance, shadow-git state, and `reviewer != builder`), and complete `scripts/verify.mjs` (`--slice=1|2|3`).
   - **Gate:** `node scripts/verify.mjs --slice=1` passes with 0 errors.
-- **Slice 2 — Profiles, Contracts, Rules, `rc-router` & 12 Playbooks:**
-  - `profiles/schema.json`, all 3 `profiles/rcstack-*.yaml`, all 6 `contracts/*`, all 3 `rules/*.md`, `skills/rc-router/SKILL.md`, `skills/rc-router/playbooks/TEMPLATE.md`, and all 12 nested playbooks.
+- **Slice 2 — Profiles, Contracts, Rules, `rc-router` & 13 Playbooks:**
+  - `profiles/schema.json`, all 3 `profiles/rcstack-*.yaml`, all 6 `contracts/*`, all 3 `rules/*.md`, `skills/rc-router/SKILL.md`, `skills/rc-router/playbooks/TEMPLATE.md`, and all 13 nested playbooks.
   - **Gate:** `node scripts/verify.mjs --slice=2` passes with 0 errors.
 - **Slice 3 — Remaining 4 Skills, Deterministic Scripts, Installer & Unit Tests:**
   - `skills/{rc-setup,rc-init,rc-doctor,rc-retro}/SKILL.md`, `scripts/{rc-state,rc-receipt,rc-log}.mjs`, `adapters/install.sh`, and `tests/*.test.mjs`.

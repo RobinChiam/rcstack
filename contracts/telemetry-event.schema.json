@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:rcstack:contracts:telemetry-event:1",
   "title": "rcstack telemetry event",
-  "description": "One row of ~/.rcstack/runtime/telemetry.jsonl: the outcome of one routed run. Appended only by scripts/rc-log.mjs, which also rejects self-review rows. Rows stay on the local machine and hold no secrets, prompts, file contents, or absolute paths.",
+  "description": "One row of ~/.rcstack/runtime/telemetry.jsonl: the outcome of one routed run. Appended only by scripts/rc-log.mjs, which rejects self-review rows and any degraded_single_harness row that lists reviewers, audit counts, or achieved_assurance above A1. Rows stay on the local machine and hold no secrets, prompts, file contents, or absolute paths.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -72,13 +72,13 @@
       "items": { "$ref": "#/$defs/model_name" }
     },
     "reviewers": {
-      "description": "Models that audited the work. Empty when no audit ran.",
+      "description": "Models that independently audited the work. Empty when no independent audit ran, including every degraded_single_harness run.",
       "type": "array",
       "uniqueItems": true,
       "items": { "$ref": "#/$defs/model_name" }
     },
     "degraded_single_harness": {
-      "description": "True when the run could not reach an independent reviewer and executed in one harness.",
+      "description": "True when the run could not reach an independent reviewer and executed in one harness. Requires reviewers: [], empty audit_accepted/audit_dismissed, and achieved_assurance of A0 or A1.",
       "type": "boolean"
     },
     "verify_attempts": { "type": "integer", "minimum": 0 },
@@ -95,6 +95,26 @@
       "maximum": 3
     }
   },
+  "allOf": [
+    {
+      "anyOf": [
+        {
+          "properties": {
+            "degraded_single_harness": { "const": false }
+          }
+        },
+        {
+          "properties": {
+            "degraded_single_harness": { "const": true },
+            "reviewers": { "maxItems": 0 },
+            "audit_accepted": { "maxProperties": 0 },
+            "audit_dismissed": { "maxProperties": 0 },
+            "achieved_assurance": { "enum": ["A0", "A1"] }
+          }
+        }
+      ]
+    }
+  ],
   "$defs": {
     "assurance": { "enum": ["A0", "A1", "A2", "A3"] },
     "model_name": {

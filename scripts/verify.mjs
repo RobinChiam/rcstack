@@ -41,6 +41,7 @@ export const PLAYBOOKS = Object.freeze([
   { domain: 'engineering', name: 'refactor-pinned', tier: 2, assurance: 'A2' },
   { domain: 'engineering', name: 'ship-and-babysit', tier: 2, assurance: 'A2' },
   { domain: 'engineering', name: 'garden-maintenance', tier: 2, assurance: 'A2' },
+  { domain: 'engineering', name: 'project-planning', tier: 0, assurance: 'A0' },
   { domain: 'study', name: 'topic-deep-dive', tier: 2, assurance: 'A2' },
   { domain: 'study', name: 'recall-and-drill', tier: 1, assurance: 'A1' },
   { domain: 'study', name: 'socratic-session', tier: 1, assurance: 'A0' },
@@ -213,12 +214,52 @@ const CONTRACT_REQUIREMENTS = Object.freeze({
 const TIER_GATES = Object.freeze([
   { flag: 'require_spec', contract: 'contracts/spec.md' },
   { flag: 'require_state_file', mention: 'rc-state.mjs' },
-  { flag: 'require_verify', mention: 'verify', unlessAssurance: 'A0' },
+  { flag: 'require_verify', mention: 'verify' },
   { flag: 'require_receipt_gate', contract: 'contracts/work-receipt.md', mention: 'rc-receipt.mjs' },
   { flag: 'require_cross_model_audit', contract: 'contracts/audit-findings.md', capability: REVIEWER_CAPABILITY },
   { flag: 'require_review_map', contract: 'contracts/review-map.md' },
   { flag: 'log_telemetry', mention: 'rc-log.mjs' },
 ]);
+
+/** Sole canonical playbook exempt from `require_verify` at its default Tier 1/A0 (DEC-018). */
+export const REQUIRE_VERIFY_EXEMPT_PLAYBOOK = Object.freeze({
+  domain: 'study',
+  name: 'socratic-session',
+  tier: 1,
+  assurance: 'A0',
+});
+
+export function isGateExempt(gateFlag, pb) {
+  return (
+    gateFlag === 'require_verify' &&
+    pb?.domain === REQUIRE_VERIFY_EXEMPT_PLAYBOOK.domain &&
+    pb?.name === REQUIRE_VERIFY_EXEMPT_PLAYBOOK.name &&
+    pb?.tier === REQUIRE_VERIFY_EXEMPT_PLAYBOOK.tier &&
+    pb?.assurance === REQUIRE_VERIFY_EXEMPT_PLAYBOOK.assurance
+  );
+}
+
+export function checkPlaybookGates({ playbook, frontmatter = null, tierConfig, contracts, capabilities, workflow }) {
+  const errors = [];
+  if (!tierConfig) return errors;
+  const effective = frontmatter
+    ? {
+        domain: typeof frontmatter.profile === 'string' && frontmatter.profile.startsWith('rcstack-') ? frontmatter.profile.slice('rcstack-'.length) : null,
+        name: frontmatter.name,
+        tier: frontmatter.default_tier,
+        assurance: frontmatter.required_assurance,
+      }
+    : playbook;
+  for (const gate of TIER_GATES) {
+    if (tierConfig[gate.flag] !== true) continue;
+    if (isGateExempt(gate.flag, playbook) && isGateExempt(gate.flag, effective)) continue;
+    const where = `profile gate ${gate.flag} (Tier ${playbook.tier})`;
+    if (gate.contract && !contracts.includes(gate.contract)) errors.push(`${where}: contracts must list ${gate.contract}`);
+    if (gate.capability && !capabilities.includes(gate.capability)) errors.push(`${where}: required_capabilities must list ${gate.capability}`);
+    if (gate.mention && !workflow.includes(gate.mention)) errors.push(`${where}: the workflow or exit gate must use \`${gate.mention}\``);
+  }
+  return errors;
+}
 
 /**
  * Concrete model names never appear in model-agnostic surfaces (system spec hard invariant 3).
@@ -613,6 +654,8 @@ function deepEqual(a, b) {
   return false;
 }
 
+export const ANY_OF_MISMATCH = 'must match at least one allowed shape';
+
 function validateNode(v, s, root, at) {
   if (s === true) return [];
   if (s === false) return [`${at}: no value is allowed here`];
@@ -672,7 +715,7 @@ function validateNode(v, s, root, at) {
   }
   for (const sub of s.allOf ?? []) e.push(...validateNode(v, sub, root, at));
   if (s.anyOf !== undefined && !s.anyOf.some((sub) => validateNode(v, sub, root, at).length === 0)) {
-    e.push(`${at}: must match at least one allowed shape`);
+    e.push(`${at}: ${ANY_OF_MISMATCH}`);
   }
   if (s.oneOf !== undefined && s.oneOf.filter((sub) => validateNode(v, sub, root, at).length === 0).length !== 1) {
     e.push(`${at}: must match exactly one allowed shape`);
@@ -1349,7 +1392,6 @@ function sliceOne(root, r) {
     .filter(([name]) => rootNames.includes(name))
     .map(([name, why]) => `${name} must not exist at the repository root (${why})`);
   r.check('S1 the repository root holds no forbidden entry (custom top-level entries are allowed)', forbidden);
-  if (lstat(path.join(root, 'docs'))) r.check('S1 docs/ holds exactly decisions.md', exactEntries(root, 'docs', ['decisions.md'], 'file'));
   if (lstat(path.join(root, 'specs'))) {
     const ignoredSpecs = new Set([...(IGNORED.get(root) ?? [])].filter((p) => p.startsWith('specs/')).map((p) => p.slice('specs/'.length)));
     r.check(
@@ -1615,13 +1657,7 @@ function checkPlaybook(root, pb, profiles, modelNames) {
   const tier = profile?.risk_tiers?.[String(pb.tier)];
   if (tier && contractErrors.length === 0) {
     const workflow = `${section('Workflow Phases')}\n${section('Exit Gate & Definition of Done')}`;
-    for (const gate of TIER_GATES) {
-      if (tier[gate.flag] !== true || gate.unlessAssurance === pb.assurance) continue;
-      const where = `profile gate ${gate.flag} (Tier ${pb.tier})`;
-      if (gate.contract && !contracts.includes(gate.contract)) errors.push(`${where}: contracts must list ${gate.contract}`);
-      if (gate.capability && !capabilities.includes(gate.capability)) errors.push(`${where}: required_capabilities must list ${gate.capability}`);
-      if (gate.mention && !workflow.includes(gate.mention)) errors.push(`${where}: the workflow or exit gate must use \`${gate.mention}\``);
-    }
+    errors.push(...checkPlaybookGates({ playbook: pb, frontmatter: d, tierConfig: tier, contracts, capabilities, workflow }));
   }
   return errors;
 }

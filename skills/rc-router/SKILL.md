@@ -58,18 +58,36 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
    - If the repository has a `specs/` directory, find the spec directory the request belongs to
      and read its `spec.md` and the `spec.md` of every parent directory, outermost first. A parent
      spec constrains its sub-specs.
-   - Run `node ~/.rcstack/dist/scripts/rc-state.mjs reconcile --repo <repo>`. Exit `2` means
+   - In a Git repository, run the read-only
+     `node ~/.rcstack/dist/scripts/rc-state.mjs reconcile --repo <repo>`. Exit `2` means
      drift: **git beats state**. Report the drift, trust `git status` and `git log`, and continue
-     from what git shows. Never edit a state file by hand.
+     from what git shows. When active state exists, read it with `rc-state.mjs show --json` and
+     load the profile, domain rules, and playbook selected by that committed state on resume.
+     Never edit a state file by hand.
 
 2. **Classify and route.** Assign all four before any work starts.
    - **Profile:** `rcstack-engineering` for software changes, `rcstack-study` for learning,
      `rcstack-research` for investigations and viability questions.
+   - **Initial project planning:** when the user wants to shape a new project and reconcile
+     reports `state: null`, or there is no repository yet, select
+     `engineering/project-planning` under `rcstack-engineering` at Tier 0/A0. Resolve only
+     `architect_blueprint`, show the routing plan with the chat handoff as its exit gate, and
+     follow the playbook in chat. Skip state initialization, builder and reviewer dispatch,
+     spec writes, receipts, and telemetry. Potential paths are planning context. Classify
+     actual file changes when requested. Active state uses the normal resume or change route.
+     Feature additions, plan changes for projects underway, and implementation requests use
+     the applicable delivery route.
+   - **Save an agreed spec:** treat an explicit spec-only request as a separate writing action.
+     Confirm which milestone and feature-local path the prior handoff covers. Apply the
+     repository's rules and report the scope, risk tier, and verification before writing.
+     For a routine Tier 1 write, save only the agreed spec and run the repository's spec check.
+     Follow the required path-based route if the destination requires stricter gates. Stop after
+     verifying the spec handoff.
    - **Risk tier:** the highest row that applies.
 
      | Tier | Use when | Floor |
      | :--- | :--- | :--- |
-     | 0 | Read-only lookup or explanation; nothing changes | `A0` |
+     | 0 | Read-only lookup, explanation, or initial project planning | `A0` |
      | 1 | Fast, easily reverted iteration: prototypes, UI polish, practice sessions | `A1` |
      | 2 | Anything that ships or that others rely on: features, fixes, refactors, reports | `A2` |
      | 3 | Auth, sandboxing, containers, symlinks, infrastructure, schemas, installers | `A3` |
@@ -77,12 +95,16 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
    - **Tier 3 auto-escalation:** if any path the task targets or touches matches the profile's
      `tier3_path_patterns`, the tier is 3 and the playbook is `engineering/security-critical`.
      Re-check every Work Receipt's `files_touched` against the patterns; on a match run
-     `rc-state.mjs transition --escalate-tier 3` and re-route. Escalation is one-way: only the
-     human de-escalates.
+     `rc-state.mjs transition --escalate-tier 3`, which atomically updates committed state to
+     profile `rcstack-engineering`, playbook `security-critical`, Tier 3, and floor `A3`. Reload
+     that profile, its domain rules, and `engineering/security-critical` (and load them on resume),
+     and observe the Tier 3 human spec sign-off pause before continuing implementation. Escalation
+     is one-way: only the human de-escalates.
    - **Playbook:** exactly one.
 
      | Request | Playbook |
      | :--- | :--- |
+     | Shape an initial project idea in chat | `engineering/project-planning` |
      | New capability with acceptance criteria | `engineering/feature-build` |
      | Something is broken | `engineering/bug-root-cause` |
      | Prototype, UI tweak, exploratory sketch | `engineering/vibe-iterate` |
@@ -115,8 +137,10 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
      present); if unreachable, that entry's `fallback`; for a builder with no entry,
      `default_fallback`. One audit has exactly one reviewer.
    - Prove `reviewer != builder` before dispatching anything. If no reviewer other than the
-     builder is reachable, do not self-review: set `degraded_single_harness: true`, leave the
-     audit counts `null` (the result tops out at `A1`), and carry an `ASSURANCE GAP`.
+     builder is reachable, set `degraded_single_harness: true`. On the Work Receipt, both
+     `audit_blockers` and `audit_majors` are `null`. In telemetry, record `reviewers: []`,
+     `audit_accepted: {}` and `audit_dismissed: {}`. The result tops out at `A1`. Carry an
+     `ASSURANCE GAP` when the required floor is higher.
    - In a standalone CLI harness with no orchestrator, run every capability locally, set
      `degraded_single_harness: true`, and apply the same cap.
 
@@ -138,8 +162,9 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
    ```
 
    - **Open:** `rc-state.mjs init --repo <repo> --profile <profile> --playbook <playbook>
-     --tier <n> --goal "<one line>"`. The floor comes from the playbook and tier;
-     `--required-assurance <A>` can raise it, never lower it.
+     --tier <n> --goal "<one line>"`. Pass the playbook name without the domain prefix.
+     For `engineering/feature-build`, use `--profile rcstack-engineering --playbook feature-build`.
+     The playbook and tier set the minimum floor. Use `--required-assurance <A>` to raise it.
    - **Move:** `rc-state.mjs transition --repo <repo> --to <PHASE> --expected-rev <rev>`. A
      revision conflict means another writer moved the state: re-read it with `rc-state.mjs show`
      and decide again; never retry blindly. `BLOCKED` needs `--blocker "<reason>"` and returns
@@ -180,7 +205,8 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
 ## Definition of Done
 
 - The 3-line routing plan was printed before any work, with profile, tier, floor, and playbook.
-- `reviewer != builder` was proven from the live catalog, or the run is flagged
+- When independent review is required, `reviewer != builder` was proven from the live
+  catalog, or the run is flagged
   `degraded_single_harness` with an `ASSURANCE GAP`.
 - Tier 2-3: every phase change went through `rc-state.mjs`, every Work Receipt was admitted by
   `rc-receipt.mjs`, and no state path left the main thread.
@@ -189,5 +215,5 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
   directory under `specs/`, and nowhere else.
 - Achieved assurance is at least the floor, or the `ASSURANCE GAP` banner is on the Review Map and
   in telemetry.
-- The Review Map was delivered, the telemetry row was appended by `rc-log.mjs`, and the state was
-  closed.
+- For tiers requiring a Review Map, telemetry or state, deliver the map, append the row
+  with `rc-log.mjs`, and close the state as applicable.
