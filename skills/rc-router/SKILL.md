@@ -120,8 +120,10 @@ Installed paths: contracts are `~/.rcstack/dist/contracts/*`, scripts are
      present); if unreachable, that entry's `fallback`; for a builder with no entry,
      `default_fallback`. One audit has exactly one reviewer.
    - Prove `reviewer != builder` before dispatching anything. If no reviewer other than the
-     builder is reachable, do not self-review: set `degraded_single_harness: true`, leave the
-     audit counts `null` (the result tops out at `A1`), and carry an `ASSURANCE GAP`.
+     builder is reachable, set `degraded_single_harness: true`. On the Work Receipt, both
+     `audit_blockers` and `audit_majors` are `null`. In telemetry, record `reviewers: []`,
+     `audit_accepted: {}` and `audit_dismissed: {}`. The result tops out at `A1`. Carry an
+     `ASSURANCE GAP` when the required floor is higher.
    - In a standalone CLI harness with no orchestrator, run every capability locally, set
      `degraded_single_harness: true`, and apply the same cap.
 

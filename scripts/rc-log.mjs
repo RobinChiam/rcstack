@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { validateSchema, sameModel, PLAYBOOKS, ASSURANCE_LEVELS } from './verify.mjs';
+import { validateSchema, sameModel, PLAYBOOKS, ASSURANCE_LEVELS, ANY_OF_MISMATCH } from './verify.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_SCHEMA = path.join(HERE, '..', 'contracts', 'telemetry-event.schema.json');
@@ -108,7 +108,7 @@ export function validateEvent(event, schema) {
   if (errors.length === 0) return semanticErrors(event);
   // If every property passed shape/type checks and only a root cross-field rule failed,
   // return the specific semantic errors instead of a generic shape mismatch.
-  if (errors.length === 1 && errors[0] === '$: must match at least one allowed shape') {
+  if (errors.length === 1 && errors[0] === `$: ${ANY_OF_MISMATCH}`) {
     const semantic = semanticErrors(event);
     if (semantic.length > 0) return semantic;
   }

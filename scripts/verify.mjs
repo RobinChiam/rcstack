@@ -653,6 +653,8 @@ function deepEqual(a, b) {
   return false;
 }
 
+export const ANY_OF_MISMATCH = 'must match at least one allowed shape';
+
 function validateNode(v, s, root, at) {
   if (s === true) return [];
   if (s === false) return [`${at}: no value is allowed here`];
@@ -712,7 +714,7 @@ function validateNode(v, s, root, at) {
   }
   for (const sub of s.allOf ?? []) e.push(...validateNode(v, sub, root, at));
   if (s.anyOf !== undefined && !s.anyOf.some((sub) => validateNode(v, sub, root, at).length === 0)) {
-    e.push(`${at}: must match at least one allowed shape`);
+    e.push(`${at}: ${ANY_OF_MISMATCH}`);
   }
   if (s.oneOf !== undefined && s.oneOf.filter((sub) => validateNode(v, sub, root, at).length === 0).length !== 1) {
     e.push(`${at}: must match exactly one allowed shape`);
